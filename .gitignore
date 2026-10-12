@@ -44,16 +44,11 @@ desktop.ini
 !.vscode/extensions.json
 !.vscode/settings.json
 
-# System Generated / Agent Transcripts
-.system_generated/
-
-# Explicit Inclusions (Must Never Be Ignored)
+# Agent, Planning, Prompt & Session Context (Do Not Track in Git)
 .agents/
-.agents/**
 .context/
-.context/**
 prompts/
-.prompts/**
 AGENTS.md
 projectworkflow.md
 memory.md
+.system_generated/
