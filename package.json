@@ -7,6 +7,10 @@
     "build": "npm --prefix desktop run build",
     "typecheck": "npm --prefix desktop run typecheck",
     "lint": "npm --prefix desktop run lint",
+    "format:check": "npm --prefix desktop run format:check",
+    "test": "cargo test --manifest-path desktop/src-tauri/Cargo.toml",
+    "clippy": "cargo clippy --manifest-path desktop/src-tauri/Cargo.toml -- -D warnings",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run clippy",
     "tauri": "npm --prefix desktop run tauri"
   }
 }
