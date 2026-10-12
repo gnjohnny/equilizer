@@ -1,0 +1,12 @@
+{
+  "name": "equilizer-root",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix desktop run dev",
+    "build": "npm --prefix desktop run build",
+    "typecheck": "npm --prefix desktop run typecheck",
+    "lint": "npm --prefix desktop run lint",
+    "tauri": "npm --prefix desktop run tauri"
+  }
+}

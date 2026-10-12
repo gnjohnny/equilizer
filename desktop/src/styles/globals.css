@@ -1,0 +1,89 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono";
+@import "tailwindcss";
+
+:root {
+  /* Surface Layers (Matte DAW Obsidian & Slate) */
+  --surface-base: #0B0E14;        /* Deepest workspace background */
+  --surface-panel: #111622;       /* Mid-layer container panels */
+  --surface-card: #161D2B;        /* Control cards and inspector modules */
+  --surface-card-hover: #1C2537;  /* Hover state for cards and inputs */
+  --surface-border: #1E293B;      /* Panel border and subtle separator */
+  --surface-border-subtle: #151D2A;/* Inner dividers and grid lines */
+
+  /* Text & Readout Typography */
+  --text-primary: #F8FAFC;        /* Headings, active values, crisp white */
+  --text-secondary: #94A3B8;      /* Labels, inactive indicators, cool gray */
+  --text-muted: #475569;          /* Secondary metadata, disabled text */
+  --text-inverse: #0B0E14;        /* Text on bright badges */
+
+  /* Brand & Filter Accents */
+  --accent-cyan: #00E5FF;         /* Primary curve spline, active node, highlights */
+  --accent-cyan-glow: rgba(0, 229, 255, 0.25);
+  --accent-emerald: #10B981;      /* Normal dynamic levels, enabled badges */
+  --accent-purple: #8B5CF6;       /* Alternate node colors, mode indicators */
+
+  /* Audio Telemetry & Alert Levels */
+  --meter-normal: #10B981;        /* Below -6 dBFS (Healthy Green) */
+  --meter-warning: #F59E0B;       /* -6 dBFS to -1 dBFS (Amber Caution) */
+  --meter-clip: #EF4444;          /* >= 0 dBFS / Limiter Active (Crimson Alert) */
+  --meter-peak-hold: #38BDF8;     /* Floating peak indicator line */
+
+  /* Canvas Graph Elements */
+  --canvas-bg: #0C101A;
+  --canvas-grid-major: #1E293B;
+  --canvas-grid-minor: #131A29;
+  --canvas-zero-line: #334155;
+  --canvas-spline: #00E5FF;
+  --canvas-spline-fill-top: rgba(0, 229, 255, 0.18);
+  --canvas-spline-fill-bottom: rgba(0, 229, 255, 0.0);
+}
+
+@theme {
+  --color-surface-base: var(--surface-base);
+  --color-surface-panel: var(--surface-panel);
+  --color-surface-card: var(--surface-card);
+  --color-surface-card-hover: var(--surface-card-hover);
+  --color-surface-border: var(--surface-border);
+  --color-surface-border-subtle: var(--surface-border-subtle);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-inverse: var(--text-inverse);
+
+  --color-accent-cyan: var(--accent-cyan);
+  --color-accent-emerald: var(--accent-emerald);
+  --color-accent-purple: var(--accent-purple);
+
+  --color-meter-normal: var(--meter-normal);
+  --color-meter-warning: var(--meter-warning);
+  --color-meter-clip: var(--meter-clip);
+  --color-meter-peak: var(--meter-peak-hold);
+
+  --font-sans: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--surface-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular figures for monospace readout stability */
+.font-mono {
+  font-feature-settings: "tnum" on, "zero" on;
+  font-variant-numeric: tabular-nums;
+}
