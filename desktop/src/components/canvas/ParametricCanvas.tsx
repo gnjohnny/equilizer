@@ -15,11 +15,13 @@ import {
   NUM_CURVE_POINTS,
   PRECOMPUTED_FREQUENCIES,
 } from "../../lib/biquad-math";
+import { useCanvasInteractions } from "./useCanvasInteractions";
 
 export interface ParametricCanvasProps {
   bands: EqBand[];
   selectedBandId?: number;
   onSelectBand?: (bandId: number) => void;
+  onUpdateBand?: (updatedBand: EqBand) => void;
   preampGainDb?: number;
   isBypassed?: boolean;
 }
@@ -28,6 +30,7 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
   bands,
   selectedBandId = 4,
   onSelectBand,
+  onUpdateBand,
   preampGainDb = 0.0,
   isBypassed = false,
 }) => {
@@ -39,6 +42,22 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
     new Float32Array(NUM_CURVE_POINTS)
   );
   const animFrameIdRef = useRef<number | null>(null);
+
+  // Integrate interactive mouse drag, hit-testing, and wheel handling
+  const {
+    hoveredBandId,
+    draggingBandId,
+    isWheeling,
+    cursorClass,
+  } = useCanvasInteractions({
+    canvasRef,
+    containerRef,
+    bands,
+    selectedBandId,
+    onSelectBand,
+    onUpdateBand,
+    isBypassed,
+  });
 
   // Internal render function
   const renderCanvas = useCallback(() => {
@@ -74,7 +93,6 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
     // =========================================================================
     // LAYER 1: Background & Logarithmic Mesh Grid
     // =========================================================================
-    // Background fill
     ctx.fillStyle = "#0C101A";
     ctx.fillRect(0, 0, width, height);
 
@@ -87,7 +105,6 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
       const guide = OCTAVE_GUIDES[i];
       const x = Math.round(freqToX(guide.freqHz, width, MIN_FREQ_HZ, MAX_FREQ_HZ));
 
-      // Vertical octave line
       ctx.beginPath();
       ctx.strokeStyle = "#1A2333";
       ctx.lineWidth = 1;
@@ -95,7 +112,6 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
       ctx.lineTo(x + 0.5, height - 16);
       ctx.stroke();
 
-      // Octave label along bottom
       ctx.fillStyle = "#4B5563";
       ctx.fillText(guide.label, x, height - 3);
     }
@@ -110,7 +126,6 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
 
       ctx.beginPath();
       if (gain === 0) {
-        // Prominent 0.0 dB Center Reference Guide
         ctx.strokeStyle = "#334155";
         ctx.lineWidth = 1.5;
         ctx.setLineDash([]);
@@ -125,7 +140,6 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Decibel tick labels on both edges
       const label = gain > 0 ? `+${gain} dB` : `${gain} dB`;
       ctx.fillStyle = gain === 0 ? "#94A3B8" : "#3B4758";
       ctx.fillText(label, 6, y - 1);
@@ -157,7 +171,6 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
       fillPath.lineTo(lastX, zeroY);
       fillPath.closePath();
 
-      // Vertical linear gradient fill
       const gradient = ctx.createLinearGradient(0, 0, 0, height);
       gradient.addColorStop(0, "rgba(0, 229, 255, 0.22)");
       gradient.addColorStop(0.5, "rgba(0, 229, 255, 0.08)");
@@ -188,7 +201,6 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
     }
 
     if (isBypassed) {
-      // Bypassed state: Dimmed amber dashed curve showing original EQ curve
       const origCurvePath = new Path2D();
       for (let p = 0; p < NUM_CURVE_POINTS; p++) {
         const x = freqToX(PRECOMPUTED_FREQUENCIES[p], width);
@@ -204,7 +216,6 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
       ctx.stroke(origCurvePath);
       ctx.restore();
 
-      // Solid flat 0 dB line for active unaltered pass-through
       ctx.save();
       ctx.strokeStyle = "#F59E0B";
       ctx.lineWidth = 2.0;
@@ -213,7 +224,6 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
       ctx.stroke(curvePath);
       ctx.restore();
     } else {
-      // Normal state: Glowing neon cyan composite spline
       ctx.save();
       ctx.strokeStyle = "#00E5FF";
       ctx.lineWidth = 2.5;
@@ -226,7 +236,7 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
     }
 
     // =========================================================================
-    // LAYER 5: Parametric Filter Nodes (10 Bands)
+    // LAYER 5: Parametric Filter Nodes & Q-Bandwidth Halos (10 Bands)
     // =========================================================================
     for (let i = 0; i < bands.length; i++) {
       const band = bands[i];
@@ -241,23 +251,63 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
       );
 
       const isSelected = band.id === selectedBandId;
+      const isHovered = band.id === hoveredBandId;
+      const isDraggingThis = band.id === draggingBandId;
       const isEnabled = band.enabled && !isBypassed;
 
-      // Outer glow ring for selected band
-      if (isSelected) {
+      // Draw Q Bandwidth Guide on active or hovered nodes
+      if (!isBypassed && (isSelected || isHovered || isDraggingThis || isWheeling)) {
+        const Q = Math.max(0.1, band.q);
+        const f0 = band.frequencyHz;
+        const sqrtTerm = Math.sqrt(1 + 1 / (4 * Q * Q));
+        const f1 = Math.max(MIN_FREQ_HZ, f0 * (sqrtTerm - 1 / (2 * Q)));
+        const f2 = Math.min(MAX_FREQ_HZ, f0 * (sqrtTerm + 1 / (2 * Q)));
+
+        const bwX1 = freqToX(f1, width);
+        const bwX2 = freqToX(f2, width);
+
+        // Bandwidth bracket guide line
+        ctx.save();
         ctx.beginPath();
-        ctx.arc(nodeX, nodeY, 12, 0, Math.PI * 2);
+        ctx.moveTo(bwX1, nodeY);
+        ctx.lineTo(bwX2, nodeY);
+        ctx.strokeStyle = isDraggingThis || isWheeling
+          ? "rgba(0, 229, 255, 0.65)"
+          : "rgba(0, 229, 255, 0.35)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Left & Right limit ticks
+        ctx.beginPath();
+        ctx.moveTo(bwX1, nodeY - 5);
+        ctx.lineTo(bwX1, nodeY + 5);
+        ctx.moveTo(bwX2, nodeY - 5);
+        ctx.lineTo(bwX2, nodeY + 5);
+        ctx.strokeStyle = "rgba(0, 229, 255, 0.8)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Outer glow halo for selected / hovered / dragged band
+      if (isSelected || isHovered || isDraggingThis) {
+        ctx.beginPath();
+        const haloRadius = isDraggingThis ? 16 : isHovered ? 14 : 12;
+        ctx.arc(nodeX, nodeY, haloRadius, 0, Math.PI * 2);
         ctx.fillStyle = isEnabled
-          ? "rgba(0, 229, 255, 0.2)"
+          ? isDraggingThis
+            ? "rgba(0, 229, 255, 0.35)"
+            : "rgba(0, 229, 255, 0.2)"
           : "rgba(245, 158, 11, 0.2)";
         ctx.fill();
       }
 
-      // Outer circular rim
+      // Outer circular handle
+      const handleRadius = isDraggingThis ? 8 : isHovered ? 7.5 : isSelected ? 7 : 5.5;
       ctx.beginPath();
-      ctx.arc(nodeX, nodeY, isSelected ? 7 : 5.5, 0, Math.PI * 2);
+      ctx.arc(nodeX, nodeY, handleRadius, 0, Math.PI * 2);
       ctx.fillStyle = isEnabled
-        ? isSelected
+        ? isSelected || isHovered || isDraggingThis
           ? "#00E5FF"
           : "#0EA5E9"
         : "#475569";
@@ -277,16 +327,40 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
 
-      const textY = nodeY - (isSelected ? 16 : 13);
-      // Small background badge for badge clarity
-      ctx.fillStyle = "rgba(11, 14, 20, 0.85)";
+      const textY = nodeY - (isSelected || isDraggingThis ? 18 : 14);
+      ctx.fillStyle = "rgba(11, 14, 20, 0.9)";
       ctx.fillRect(nodeX - 7, textY - 6, 14, 12);
-      ctx.strokeStyle = isSelected ? "#00E5FF" : "#1E293B";
+      ctx.strokeStyle = isSelected || isHovered ? "#00E5FF" : "#1E293B";
       ctx.lineWidth = 1;
       ctx.strokeRect(nodeX - 7, textY - 6, 14, 12);
 
-      ctx.fillStyle = isSelected ? "#00E5FF" : "#94A3B8";
+      ctx.fillStyle = isSelected || isHovered ? "#00E5FF" : "#94A3B8";
       ctx.fillText(band.id.toString(), nodeX, textY);
+
+      // Real-time floating parameter tooltip when dragging or wheeling this band
+      if (!isBypassed && (isDraggingThis || (isWheeling && isSelected))) {
+        const readout = `${Math.round(band.frequencyHz).toLocaleString()} Hz \u2022 ${
+          band.gainDb >= 0 ? "+" : ""
+        }${band.gainDb.toFixed(1)} dB \u2022 Q: ${band.q.toFixed(2)}`;
+
+        ctx.font = "bold 10px 'JetBrains Mono', monospace";
+        const metrics = ctx.measureText(readout);
+        const pillW = metrics.width + 16;
+        const pillH = 18;
+        const pillX = Math.max(10, Math.min(width - pillW - 10, nodeX - pillW / 2));
+        const pillY = Math.max(10, nodeY - 34);
+
+        ctx.fillStyle = "rgba(11, 14, 20, 0.95)";
+        ctx.fillRect(pillX, pillY, pillW, pillH);
+        ctx.strokeStyle = "#00E5FF";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(pillX, pillY, pillW, pillH);
+
+        ctx.fillStyle = "#00E5FF";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(readout, pillX + pillW / 2, pillY + pillH / 2);
+      }
     }
 
     // =========================================================================
@@ -303,40 +377,15 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
     }
 
     ctx.restore();
-  }, [bands, selectedBandId, preampGainDb, isBypassed]);
-
-  // Handle canvas clicks to select closest band
-  const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!onSelectBand || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
-    const height = rect.height;
-
-    let closestBandId = -1;
-    let minDistance = 24; // 24px click hit radius
-
-    for (let i = 0; i < bands.length; i++) {
-      const band = bands[i];
-      const nodeX = freqToX(band.frequencyHz, rect.width);
-      const nodeY = gainToY(
-        isBypassed ? 0.0 : band.gainDb,
-        height - 20,
-        MIN_GAIN_DB,
-        MAX_GAIN_DB
-      );
-
-      const dist = Math.hypot(clickX - nodeX, clickY - nodeY);
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestBandId = band.id;
-      }
-    }
-
-    if (closestBandId !== -1) {
-      onSelectBand(closestBandId);
-    }
-  };
+  }, [
+    bands,
+    selectedBandId,
+    preampGainDb,
+    isBypassed,
+    hoveredBandId,
+    draggingBandId,
+    isWheeling,
+  ]);
 
   // Schedule render on requestAnimationFrame
   useEffect(() => {
@@ -352,7 +401,6 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
 
     scheduleRender();
 
-    // ResizeObserver for zero-lag HiDPI adjustments
     const container = containerRef.current;
     if (!container) return;
 
@@ -377,8 +425,7 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
     >
       <canvas
         ref={canvasRef}
-        onClick={handleCanvasClick}
-        className="w-full h-full block cursor-crosshair"
+        className={`w-full h-full block ${cursorClass}`}
       />
     </div>
   );

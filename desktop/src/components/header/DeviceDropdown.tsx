@@ -16,8 +16,7 @@ export const DeviceDropdown: React.FC<DeviceDropdownProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const selectedDevice =
-    devices.find((d) => d.id === selectedDeviceId) ?? devices[0];
+  const selectedDevice = devices.find((d) => d.id === selectedDeviceId) ?? devices[0];
 
   const handleClose = useCallback(() => {
     setIsOpen(false);
@@ -28,10 +27,7 @@ export const DeviceDropdown: React.FC<DeviceDropdownProps> = ({
     if (!isOpen) return;
 
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
-      ) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         handleClose();
       }
     };
@@ -60,7 +56,7 @@ export const DeviceDropdown: React.FC<DeviceDropdownProps> = ({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         title={selectedDevice ? selectedDevice.name : "Select Device"}
-        className={`h-8 px-2.5 rounded-md text-xs font-medium flex items-center gap-2 border transition-colors cursor-pointer select-none max-w-[160px] sm:max-w-[185px] xl:max-w-[210px] ${
+        className={`h-8 px-2.5 rounded-md text-xs font-medium flex items-center gap-2 border transition-colors cursor-pointer select-none max-w-40 sm:max-w-46.25 xl:max-w-52.5 ${
           isOpen
             ? "bg-surface-card border-accent-cyan text-text-primary shadow-[0_0_8px_rgba(0,229,255,0.2)]"
             : "bg-surface-card/90 border-surface-border hover:border-slate-600 hover:bg-surface-card text-text-secondary hover:text-text-primary"
@@ -82,7 +78,7 @@ export const DeviceDropdown: React.FC<DeviceDropdownProps> = ({
         <div
           role="listbox"
           aria-label="Audio Output Devices"
-          className="absolute top-full mt-1.5 left-0 z-50 min-w-[280px] bg-surface-panel border border-surface-border rounded-lg shadow-2xl shadow-black p-1.5 flex flex-col gap-1 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100"
+          className="absolute top-full mt-1.5 left-0 z-50 min-w-70 bg-surface-panel border border-surface-border rounded-lg shadow-2xl shadow-black p-1.5 flex flex-col gap-1 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100"
         >
           <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted border-b border-surface-border-subtle flex items-center justify-between">
             <span>Audio Playback Endpoint</span>

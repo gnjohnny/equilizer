@@ -1,21 +1,32 @@
 import React, { useState } from "react";
 import { HeaderBar } from "../header/HeaderBar";
 import { ParametricCanvas } from "../canvas/ParametricCanvas";
-import { FACTORY_PRESETS, MOCK_AUDIO_DEVICES, EqualizerPreset } from "../../types/audio";
+import { FACTORY_PRESETS, MOCK_AUDIO_DEVICES, EqualizerPreset, EqBand } from "../../types/audio";
 
 export const WorkstationShell: React.FC = () => {
   const [isBypassed, setIsBypassed] = useState<boolean>(false);
   const [selectedPresetId, setSelectedPresetId] = useState<string>("flat");
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("default");
   const [selectedBandId, setSelectedBandId] = useState<number>(4);
-  const [presets] = useState<EqualizerPreset[]>(FACTORY_PRESETS);
+  const [presets, setPresets] = useState<EqualizerPreset[]>(FACTORY_PRESETS);
 
-  const activePreset =
-    presets.find((p) => p.id === selectedPresetId) ?? presets[0];
+  const activePreset = presets.find((p) => p.id === selectedPresetId) ?? presets[0];
   const selectedBand =
     activePreset.bands.find((b) => b.id === selectedBandId) ??
     activePreset.bands[3] ??
     activePreset.bands[0];
+
+  const handleUpdateBand = (updatedBand: EqBand) => {
+    setPresets((prevPresets) =>
+      prevPresets.map((preset) => {
+        if (preset.id !== selectedPresetId) return preset;
+        return {
+          ...preset,
+          bands: preset.bands.map((b) => (b.id === updatedBand.id ? updatedBand : b)),
+        };
+      })
+    );
+  };
 
   return (
     <div className="flex flex-col w-screen h-screen overflow-hidden bg-surface-base text-text-primary select-none">
@@ -42,11 +53,12 @@ export const WorkstationShell: React.FC = () => {
       {/* =========================================================================
           TIER 2: CANVAS STAGE (flex-1 / Dynamic Height, Min 320px)
           ========================================================================= */}
-      <section className="flex-1 min-h-[320px] relative overflow-hidden bg-surface-base p-3 flex flex-col">
+      <section className="flex-1 min-h-80 relative overflow-hidden bg-surface-base p-3 flex flex-col">
         <ParametricCanvas
           bands={activePreset.bands}
           selectedBandId={selectedBandId}
           onSelectBand={(bandId) => setSelectedBandId(bandId)}
+          onUpdateBand={handleUpdateBand}
           preampGainDb={activePreset.preampGainDb}
           isBypassed={isBypassed}
         />
@@ -121,7 +133,9 @@ export const WorkstationShell: React.FC = () => {
         {/* Module 1: Dedicated Bass Boost */}
         <div className="flex flex-col justify-between p-3 rounded-lg bg-surface-card border border-surface-border-subtle shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold tracking-wider uppercase text-text-secondary">Bass Boost</span>
+            <span className="text-xs font-semibold tracking-wider uppercase text-text-secondary">
+              Bass Boost
+            </span>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-base text-accent-cyan border border-surface-border">
               +0.0 dB
             </span>
@@ -148,7 +162,9 @@ export const WorkstationShell: React.FC = () => {
         {/* Module 2: Pre-Amp Gain Attenuation */}
         <div className="flex flex-col justify-between p-3 rounded-lg bg-surface-card border border-surface-border-subtle shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold tracking-wider uppercase text-text-secondary">Pre-Amp Gain</span>
+            <span className="text-xs font-semibold tracking-wider uppercase text-text-secondary">
+              Pre-Amp Gain
+            </span>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-base text-text-primary border border-surface-border">
               0.0 dB
             </span>
@@ -166,7 +182,9 @@ export const WorkstationShell: React.FC = () => {
         {/* Module 3: Dynamics & Headroom Limiter */}
         <div className="flex flex-col justify-between p-3 rounded-lg bg-surface-card border border-surface-border-subtle shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold tracking-wider uppercase text-text-secondary">Limiter / Safety</span>
+            <span className="text-xs font-semibold tracking-wider uppercase text-text-secondary">
+              Limiter / Safety
+            </span>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-meter-normal/20 border border-meter-normal/40 text-meter-normal">
               ENGAGED
             </span>
@@ -183,7 +201,9 @@ export const WorkstationShell: React.FC = () => {
         {/* Module 4: Stereo Peak VU Meters */}
         <div className="flex flex-col justify-between p-3 rounded-lg bg-surface-card border border-surface-border-subtle shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold tracking-wider uppercase text-text-secondary">Stereo Output</span>
+            <span className="text-xs font-semibold tracking-wider uppercase text-text-secondary">
+              Stereo Output
+            </span>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-base text-text-muted border border-surface-border">
               30 Hz Telemetry
             </span>
