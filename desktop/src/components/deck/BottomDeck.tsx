@@ -3,7 +3,7 @@ import { BassBoostConfig } from "../../types/audio";
 import { BassBoostModule } from "./BassBoostModule";
 import { PreampModule } from "./PreampModule";
 import { LimiterModule } from "./LimiterModule";
-import { StereoMeterSlot } from "./StereoMeterSlot";
+import { StereoPeakMeter } from "./StereoPeakMeter";
 
 export interface BottomDeckProps {
   bassBoost: BassBoostConfig;
@@ -49,7 +49,12 @@ export const BottomDeck: React.FC<BottomDeckProps> = ({
       />
 
       {/* Module 4: Stereo Peak VU Meters */}
-      <StereoMeterSlot isBypassed={isBypassed} />
+      <StereoPeakMeter
+        preampGainDb={preampGainDb}
+        bassBoostGainDb={bassBoost.enabled ? bassBoost.gainDb : 0}
+        isBypassed={isBypassed}
+        limiterEnabled={limiterEnabled}
+      />
     </footer>
   );
 };
