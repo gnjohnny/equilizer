@@ -19,10 +19,7 @@ export const BandInspector: React.FC<BandInspectorProps> = ({
   onUpdateBand,
   isBypassed = false,
 }) => {
-  const selectedBand =
-    bands.find((b) => b.id === selectedBandId) ??
-    bands[3] ??
-    bands[0];
+  const selectedBand = bands.find((b) => b.id === selectedBandId) ?? bands[3] ?? bands[0];
 
   const isBandEnabled = selectedBand ? selectedBand.enabled && !isBypassed : false;
 
@@ -45,7 +42,7 @@ export const BandInspector: React.FC<BandInspectorProps> = ({
       {/* =====================================================================
           LEFT ZONE: Band Readout, Enable/Bypass Toggle & Filter Shape
           ===================================================================== */}
-      <div className="flex items-center gap-3 pr-4 border-r border-surface-border-subtle flex-shrink-0">
+      <div className="flex items-center gap-3 pr-4 border-r border-surface-border-subtle shrink-0">
         {/* Band Indicator & Toggle Button */}
         <div className="flex items-center gap-2">
           <button
@@ -92,7 +89,7 @@ export const BandInspector: React.FC<BandInspectorProps> = ({
           CENTER ZONE: Surgical Numeric Controls (Frequency, Gain, Q-Factor)
           ===================================================================== */}
       <div
-        className={`flex items-center gap-2.5 transition-opacity duration-150 flex-shrink-0 ${
+        className={`flex items-center gap-2.5 transition-opacity duration-150 shrink-0 ${
           isBandEnabled ? "opacity-100" : "opacity-45"
         }`}
       >
@@ -177,9 +174,7 @@ export const BandInspector: React.FC<BandInspectorProps> = ({
               <span className="font-semibold">{band.id}</span>
               <span className="text-[9px]">
                 {band.frequencyHz >= 1000
-                  ? `${(band.frequencyHz / 1000).toFixed(
-                      band.frequencyHz % 1000 === 0 ? 0 : 1
-                    )}k`
+                  ? `${(band.frequencyHz / 1000).toFixed(band.frequencyHz % 1000 === 0 ? 0 : 1)}k`
                   : `${Math.round(band.frequencyHz)}`}
               </span>
             </button>

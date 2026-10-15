@@ -3,7 +3,7 @@
  * Implements Robert Bristow-Johnson (RBJ) Audio EQ Cookbook formulas
  */
 
-import { EqBand } from "../types/audio";
+import { EqBand, BassBoostConfig } from "../types/audio";
 import { generateLogFrequencies } from "./coordinates";
 
 export const DEFAULT_SAMPLE_RATE = 48000;
@@ -154,7 +154,8 @@ export function computeCompositeResponse(
   preampGainDb: number = 0.0,
   targetBuffer: Float32Array = new Float32Array(NUM_CURVE_POINTS),
   frequencies: Float32Array = PRECOMPUTED_FREQUENCIES,
-  sampleRate: number = DEFAULT_SAMPLE_RATE
+  sampleRate: number = DEFAULT_SAMPLE_RATE,
+  bassBoost?: BassBoostConfig
 ): Float32Array {
   // Pre-calculate coefficients only for enabled bands
   const activeCoeffs: NormalizedBiquadCoeffs[] = [];
@@ -163,6 +164,19 @@ export function computeCompositeResponse(
     if (band && band.enabled) {
       activeCoeffs.push(calculateBiquadCoefficients(band, sampleRate));
     }
+  }
+
+  // Pre-calculate coefficients for dedicated Bass Boost if active
+  if (bassBoost && bassBoost.enabled && bassBoost.gainDb > 0.01) {
+    const bassBand: EqBand = {
+      id: 99,
+      enabled: true,
+      filterType: "LowShelf",
+      frequencyHz: bassBoost.frequencyHz || (bassBoost.mode === "Punch" ? 90.0 : 45.0),
+      gainDb: bassBoost.gainDb,
+      q: 0.707,
+    };
+    activeCoeffs.push(calculateBiquadCoefficients(bassBand, sampleRate));
   }
 
   const numPoints = frequencies.length;

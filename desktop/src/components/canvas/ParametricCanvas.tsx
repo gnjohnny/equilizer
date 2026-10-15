@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback } from "react";
-import { EqBand } from "../../types/audio";
+import { EqBand, BassBoostConfig } from "../../types/audio";
 import {
   freqToX,
   gainToY,
@@ -23,6 +23,7 @@ export interface ParametricCanvasProps {
   onSelectBand?: (bandId: number) => void;
   onUpdateBand?: (updatedBand: EqBand) => void;
   preampGainDb?: number;
+  bassBoost?: BassBoostConfig;
   isBypassed?: boolean;
 }
 
@@ -32,6 +33,7 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
   onSelectBand,
   onUpdateBand,
   preampGainDb = 0.0,
+  bassBoost,
   isBypassed = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -149,7 +151,14 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
     // LAYER 2: Compute Composite Response
     // =========================================================================
     const curveBuffer = responseBufferRef.current;
-    computeCompositeResponse(bands, preampGainDb, curveBuffer);
+    computeCompositeResponse(
+      bands,
+      preampGainDb,
+      curveBuffer,
+      PRECOMPUTED_FREQUENCIES,
+      undefined,
+      bassBoost
+    );
 
     const zeroY = gainToY(0, height - 20, MIN_GAIN_DB, MAX_GAIN_DB);
 
@@ -381,6 +390,7 @@ export const ParametricCanvas: React.FC<ParametricCanvasProps> = ({
     bands,
     selectedBandId,
     preampGainDb,
+    bassBoost,
     isBypassed,
     hoveredBandId,
     draggingBandId,
