@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { HeaderBar } from "../header/HeaderBar";
 import { ParametricCanvas } from "../canvas/ParametricCanvas";
+import { BandInspector } from "../inspector/BandInspector";
 import { FACTORY_PRESETS, MOCK_AUDIO_DEVICES, EqualizerPreset, EqBand } from "../../types/audio";
 
 export const WorkstationShell: React.FC = () => {
@@ -11,10 +12,6 @@ export const WorkstationShell: React.FC = () => {
   const [presets, setPresets] = useState<EqualizerPreset[]>(FACTORY_PRESETS);
 
   const activePreset = presets.find((p) => p.id === selectedPresetId) ?? presets[0];
-  const selectedBand =
-    activePreset.bands.find((b) => b.id === selectedBandId) ??
-    activePreset.bands[3] ??
-    activePreset.bands[0];
 
   const handleUpdateBand = (updatedBand: EqBand) => {
     setPresets((prevPresets) =>
@@ -67,64 +64,13 @@ export const WorkstationShell: React.FC = () => {
       {/* =========================================================================
           TIER 3: BAND INSPECTOR STRIP (h-20 / 80px Fixed)
           ========================================================================= */}
-      <section className="h-20 flex-none border-t border-surface-border bg-surface-card px-4 flex items-center justify-between gap-4 z-10">
-        {/* Left: Active Band Micro-Controls Preview */}
-        <div className="flex items-center gap-3 pr-3 border-r border-surface-border-subtle">
-          <div className="flex flex-col">
-            <span className="text-[10px] uppercase font-semibold tracking-wider text-text-muted">
-              Selected
-            </span>
-            <span className="text-xs font-bold text-accent-cyan font-mono">
-              BAND {selectedBand?.id.toString().padStart(2, "0")}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-xs font-mono">
-            <div className="px-2 py-1 rounded bg-surface-base border border-surface-border text-text-secondary">
-              Type: <span className="text-text-primary">{selectedBand?.filterType}</span>
-            </div>
-            <div className="px-2 py-1 rounded bg-surface-base border border-surface-border text-text-secondary">
-              Freq:{" "}
-              <span className="text-text-primary">
-                {selectedBand ? Math.round(selectedBand.frequencyHz).toLocaleString() : 0} Hz
-              </span>
-            </div>
-            <div className="px-2 py-1 rounded bg-surface-base border border-surface-border text-text-secondary">
-              Gain:{" "}
-              <span className="text-text-primary">
-                {selectedBand && selectedBand.gainDb >= 0
-                  ? `+${selectedBand.gainDb.toFixed(1)}`
-                  : selectedBand?.gainDb.toFixed(1)}{" "}
-                dB
-              </span>
-            </div>
-            <div className="px-2 py-1 rounded bg-surface-base border border-surface-border text-text-secondary">
-              Q: <span className="text-text-primary">{selectedBand?.q.toFixed(2)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Right: 10-Band Selector Strip */}
-        <div className="flex-1 flex items-center justify-end gap-1.5 overflow-hidden">
-          {activePreset.bands.map((band) => (
-            <div
-              key={band.id}
-              onClick={() => setSelectedBandId(band.id)}
-              className={`flex flex-col items-center justify-center px-2 py-1 rounded border text-[10px] font-mono transition-colors cursor-pointer ${
-                band.id === selectedBandId
-                  ? "bg-accent-cyan/15 border-accent-cyan text-accent-cyan shadow-[0_0_8px_rgba(0,229,255,0.2)]"
-                  : "bg-surface-base border-surface-border text-text-muted hover:border-surface-border-subtle hover:text-text-secondary"
-              }`}
-            >
-              <span className="font-semibold">{band.id}</span>
-              <span className="text-[9px]">
-                {band.frequencyHz >= 1000
-                  ? `${(band.frequencyHz / 1000).toFixed(band.frequencyHz % 1000 === 0 ? 0 : 1)}k`
-                  : `${Math.round(band.frequencyHz)}`}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
+      <BandInspector
+        bands={activePreset.bands}
+        selectedBandId={selectedBandId}
+        onSelectBand={(bandId) => setSelectedBandId(bandId)}
+        onUpdateBand={handleUpdateBand}
+        isBypassed={isBypassed}
+      />
 
       {/* =========================================================================
           TIER 4: BOTTOM CONTROL DECK (h-44 / 176px Fixed)
