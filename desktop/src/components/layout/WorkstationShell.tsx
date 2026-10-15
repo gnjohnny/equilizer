@@ -1,62 +1,34 @@
-import React from "react";
-import { THEME_COLORS } from "../../styles/theme";
+import React, { useState } from "react";
+import { HeaderBar } from "../header/HeaderBar";
+import { FACTORY_PRESETS, MOCK_AUDIO_DEVICES, EqualizerPreset } from "../../types/audio";
 
 export const WorkstationShell: React.FC = () => {
+  const [isBypassed, setIsBypassed] = useState<boolean>(false);
+  const [selectedPresetId, setSelectedPresetId] = useState<string>("flat");
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("default");
+  const [presets] = useState<EqualizerPreset[]>(FACTORY_PRESETS);
+
   return (
     <div className="flex flex-col w-screen h-screen overflow-hidden bg-surface-base text-text-primary select-none">
       {/* =========================================================================
           TIER 1: HEADER BAR (h-14 / 56px Fixed)
           ========================================================================= */}
-      <header className="h-14 flex-none border-b border-surface-border bg-surface-panel/90 backdrop-blur px-4 flex items-center justify-between z-10">
-        {/* Left: Branding & Workstation Status */}
-        <div className="flex items-center gap-3">
-          <div
-            className="w-3.5 h-3.5 rounded-full bg-accent-cyan shadow-[0_0_12px_var(--accent-cyan)]"
-            title={`Accent Spline: ${THEME_COLORS.accentCyan}`}
-          />
-          <span className="text-base font-bold tracking-wider uppercase font-sans text-text-primary">
-            Equilizer
-          </span>
-          <span className="text-[10px] font-semibold tracking-wider px-2 py-0.5 rounded bg-surface-card border border-surface-border text-text-secondary uppercase">
-            DSP Workstation
-          </span>
-          <span className="text-xs px-2.5 py-0.5 rounded bg-surface-base border border-surface-border text-accent-cyan font-mono">
-            Preset: Flat
-          </span>
-        </div>
-
-        {/* Center: Engine & Latency Readout */}
-        <div className="hidden md:flex items-center gap-4 text-xs">
-          <span className="text-text-muted">
-            Engine: <span className="text-text-secondary font-mono">Direct Form II Transposed</span>
-          </span>
-          <div className="h-3 w-px bg-surface-border" />
-          <span className="text-text-muted">
-            Round-Trip Latency: <span className="text-accent-cyan font-mono">&lt; 12.4 ms</span>
-          </span>
-          <div className="h-3 w-px bg-surface-border" />
-          <span className="text-text-muted">
-            WASAPI Loopback: <span className="text-accent-emerald font-mono">Active (48 kHz)</span>
-          </span>
-        </div>
-
-        {/* Right: Master Bypass & Actions Placeholder */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="px-3 py-1.5 rounded-md text-xs font-semibold bg-surface-card border border-surface-border hover:border-accent-cyan/50 hover:bg-surface-card-hover text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
-          >
-            Presets
-          </button>
-          <button
-            type="button"
-            className="px-3 py-1.5 rounded-md text-xs font-bold bg-slate-800/80 border border-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
-          >
-            BYPASS
-          </button>
-          <div className="w-2 h-2 rounded-full bg-accent-emerald shadow-[0_0_8px_var(--accent-emerald)] ml-1" title="DSP Active" />
-        </div>
-      </header>
+      <HeaderBar
+        isBypassed={isBypassed}
+        onToggleBypass={() => setIsBypassed((prev) => !prev)}
+        presets={presets}
+        selectedPresetId={selectedPresetId}
+        onSelectPreset={(presetId) => setSelectedPresetId(presetId)}
+        devices={MOCK_AUDIO_DEVICES}
+        selectedDeviceId={selectedDeviceId}
+        onSelectDevice={(deviceId) => setSelectedDeviceId(deviceId)}
+        onSavePreset={() => {
+          console.log("[Presets] Save preset requested for:", selectedPresetId);
+        }}
+        onNewPreset={() => {
+          console.log("[Presets] New preset requested");
+        }}
+      />
 
       {/* =========================================================================
           TIER 2: CANVAS STAGE (flex-1 / Dynamic Height, Min 320px)
@@ -71,16 +43,40 @@ export const WorkstationShell: React.FC = () => {
           </div>
 
           {/* Centered Graphic Curve Placeholder Frame */}
-          <div className="flex flex-col items-center justify-center gap-2 text-center my-auto">
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-surface-panel/80 border border-surface-border">
-              <span className="w-2 h-2 rounded-full bg-accent-cyan animate-pulse" />
-              <span className="text-xs font-semibold text-text-primary uppercase tracking-wider font-sans">
-                Interactive Canvas Curve Stage
+          <div
+            className={`flex flex-col items-center justify-center gap-2 text-center my-auto transition-opacity duration-200 ${
+              isBypassed ? "opacity-60" : "opacity-100"
+            }`}
+          >
+            <div
+              className={`flex items-center gap-2 px-3 py-1 rounded-full border transition-all ${
+                isBypassed
+                  ? "bg-amber-500/15 border-amber-500/50 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.2)]"
+                  : "bg-surface-panel/80 border-surface-border text-text-primary"
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isBypassed ? "bg-amber-400" : "bg-accent-cyan animate-pulse"
+                }`}
+              />
+              <span className="text-xs font-semibold uppercase tracking-wider font-sans">
+                {isBypassed
+                  ? "A/B Pass-Through Active (DSP Bypassed)"
+                  : "Interactive Canvas Curve Stage"}
               </span>
-              <span className="text-[10px] font-mono text-accent-cyan">Step 09 &bull; Step 10</span>
+              <span
+                className={`text-[10px] font-mono ${
+                  isBypassed ? "text-amber-400" : "text-accent-cyan"
+                }`}
+              >
+                {isBypassed ? "Raw Pass-Through" : "Step 09 \u2022 Step 10"}
+              </span>
             </div>
             <p className="text-xs text-text-secondary max-w-md m-0">
-              60 FPS Direct Form II Transposed spline visualization &bull; 10 draggable filter nodes &bull; Mouse-wheel Q adjustment
+              {isBypassed
+                ? "Equalization filters bypassed. Outbound audio streams directly to playback endpoint unaltered."
+                : "60 FPS Direct Form II Transposed spline visualization \u2022 10 draggable filter nodes \u2022 Mouse-wheel Q adjustment"}
             </p>
             <div className="flex items-center gap-3 mt-2 text-[11px] font-mono text-text-muted">
               <span>View: 20 Hz – 20 kHz</span>
