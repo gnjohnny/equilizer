@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { SlidersHorizontal, ChevronDown, Check, Plus, Save } from "lucide-react";
+import { SlidersHorizontal, ChevronDown, Check, Plus, Save, Trash2 } from "lucide-react";
 import { EqualizerPreset } from "../../types/audio";
 
 export interface PresetDropdownProps {
@@ -8,6 +8,7 @@ export interface PresetDropdownProps {
   onSelectPreset: (presetId: string) => void;
   onSavePreset?: () => void;
   onNewPreset?: () => void;
+  onDeletePreset?: (preset: EqualizerPreset) => void;
 }
 
 export const PresetDropdown: React.FC<PresetDropdownProps> = ({
@@ -16,6 +17,7 @@ export const PresetDropdown: React.FC<PresetDropdownProps> = ({
   onSelectPreset,
   onSavePreset,
   onNewPreset,
+  onDeletePreset,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -124,15 +126,40 @@ export const PresetDropdown: React.FC<PresetDropdownProps> = ({
                     <span className="truncate">{preset.name}</span>
                   </div>
 
-                  <span
-                    className={`flex-none text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${
-                      preset.isFactory
-                        ? "bg-slate-800 text-slate-300 border-slate-700"
-                        : "bg-accent-purple/20 text-accent-purple border-accent-purple/40"
-                    }`}
-                  >
-                    {preset.isFactory ? "Factory" : "Custom"}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-none">
+                    <span
+                      className={`text-[9px] font-mono px-1.5 py-0.2 rounded border uppercase ${
+                        preset.isFactory
+                          ? "bg-slate-800 text-slate-300 border-slate-700"
+                          : "bg-accent-purple/20 text-accent-purple border-accent-purple/40"
+                      }`}
+                    >
+                      {preset.isFactory ? "Factory" : "Custom"}
+                    </span>
+
+                    {!preset.isFactory && onDeletePreset && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        title={`Delete preset "${preset.name}"`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeletePreset(preset);
+                          handleClose();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.stopPropagation();
+                            onDeletePreset(preset);
+                            handleClose();
+                          }
+                        }}
+                        className="p-1 rounded text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </span>
+                    )}
+                  </div>
                 </button>
               );
             })}

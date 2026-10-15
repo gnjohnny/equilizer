@@ -15,6 +15,7 @@ export interface HeaderBarProps {
   onSelectDevice: (deviceId: string) => void;
   onSavePreset?: () => void;
   onNewPreset?: () => void;
+  onDeletePreset?: (preset: EqualizerPreset) => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -28,6 +29,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onSelectDevice,
   onSavePreset,
   onNewPreset,
+  onDeletePreset,
 }) => {
   const handleMinimize = async () => {
     try {
@@ -97,6 +99,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             onSelectPreset={onSelectPreset}
             onSavePreset={onSavePreset}
             onNewPreset={onNewPreset}
+            onDeletePreset={onDeletePreset}
           />
         </div>
       </div>

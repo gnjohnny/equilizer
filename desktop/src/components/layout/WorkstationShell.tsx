@@ -3,6 +3,8 @@ import { HeaderBar } from "../header/HeaderBar";
 import { ParametricCanvas } from "../canvas/ParametricCanvas";
 import { BandInspector } from "../inspector/BandInspector";
 import { BottomDeck } from "../deck/BottomDeck";
+import { SavePresetModal } from "../modals/SavePresetModal";
+import { DeleteConfirmModal } from "../modals/DeleteConfirmModal";
 import {
   FACTORY_PRESETS,
   MOCK_AUDIO_DEVICES,
@@ -18,6 +20,8 @@ export const WorkstationShell: React.FC = () => {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("default");
   const [selectedBandId, setSelectedBandId] = useState<number>(4);
   const [presets, setPresets] = useState<EqualizerPreset[]>(FACTORY_PRESETS);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState<boolean>(false);
+  const [presetToDelete, setPresetToDelete] = useState<EqualizerPreset | null>(null);
 
   const activePreset = presets.find((p) => p.id === selectedPresetId) ?? presets[0];
 
@@ -57,6 +61,46 @@ export const WorkstationShell: React.FC = () => {
     );
   };
 
+  const handleSavePreset = (name: string, overwriteId?: string) => {
+    if (overwriteId) {
+      setPresets((prev) =>
+        prev.map((p) => {
+          if (p.id !== overwriteId) return p;
+          return {
+            ...p,
+            name,
+            preampGainDb: activePreset.preampGainDb,
+            bassBoost: { ...activePreset.bassBoost },
+            bands: activePreset.bands.map((b) => ({ ...b })),
+            updatedAt: new Date().toISOString(),
+          };
+        })
+      );
+      setSelectedPresetId(overwriteId);
+    } else {
+      const newId = `user-${Date.now()}`;
+      const newPreset: EqualizerPreset = {
+        id: newId,
+        name,
+        isFactory: false,
+        preampGainDb: activePreset.preampGainDb,
+        bassBoost: { ...activePreset.bassBoost },
+        bands: activePreset.bands.map((b) => ({ ...b })),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setPresets((prev) => [...prev, newPreset]);
+      setSelectedPresetId(newId);
+    }
+  };
+
+  const handleDeletePreset = (presetId: string) => {
+    setPresets((prev) => prev.filter((p) => p.id !== presetId));
+    if (selectedPresetId === presetId) {
+      setSelectedPresetId("flat");
+    }
+  };
+
   const handleToggleLimiter = () => {
     setLimiterEnabled((prev) => !prev);
   };
@@ -75,12 +119,9 @@ export const WorkstationShell: React.FC = () => {
         devices={MOCK_AUDIO_DEVICES}
         selectedDeviceId={selectedDeviceId}
         onSelectDevice={(deviceId) => setSelectedDeviceId(deviceId)}
-        onSavePreset={() => {
-          console.log("[Presets] Save preset requested for:", selectedPresetId);
-        }}
-        onNewPreset={() => {
-          console.log("[Presets] New preset requested");
-        }}
+        onSavePreset={() => setIsSaveModalOpen(true)}
+        onNewPreset={() => setIsSaveModalOpen(true)}
+        onDeletePreset={(preset) => setPresetToDelete(preset)}
       />
 
       {/* =========================================================================
@@ -121,6 +162,28 @@ export const WorkstationShell: React.FC = () => {
         onToggleLimiter={handleToggleLimiter}
         isBypassed={isBypassed}
       />
+
+      {/* =========================================================================
+          MODALS: Preset Save & Delete Confirmation Dialogs
+          ========================================================================= */}
+      {isSaveModalOpen && (
+        <SavePresetModal
+          isOpen={isSaveModalOpen}
+          currentPreset={activePreset}
+          existingPresets={presets}
+          onClose={() => setIsSaveModalOpen(false)}
+          onSave={handleSavePreset}
+        />
+      )}
+
+      {presetToDelete !== null && (
+        <DeleteConfirmModal
+          isOpen={presetToDelete !== null}
+          preset={presetToDelete}
+          onClose={() => setPresetToDelete(null)}
+          onConfirmDelete={handleDeletePreset}
+        />
+      )}
     </div>
   );
 };
