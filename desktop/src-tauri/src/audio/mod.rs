@@ -4,6 +4,7 @@ pub mod buffer;
 pub mod capture;
 pub mod dsp;
 pub mod pipeline;
+pub mod preamp;
 pub mod render;
 
 pub use bass_boost::{BassBoostConfig, BassBoostEngine, BassBoostMode, DEFAULT_BASS_BOOST_Q};
@@ -11,6 +12,7 @@ pub use benchmark::{benchmark_ring_buffer_memory, calculate_theoretical_latency_
 pub use capture::WasapiCapture;
 pub use dsp::{BiquadCoefficients, BiquadFilterChain, EqBandConfig, FilterType, StereoBiquad};
 pub use pipeline::AudioPipeline;
+pub use preamp::{PreampStage, DEFAULT_PREAMP_GAIN_DB, MAX_PREAMP_GAIN_DB, MIN_PREAMP_GAIN_DB};
 pub use render::WasapiRender;
 
 use cpal::traits::{DeviceTrait, HostTrait};
