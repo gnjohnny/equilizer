@@ -2,6 +2,7 @@ pub mod audio;
 pub mod commands;
 pub mod state;
 pub mod storage;
+pub mod telemetry;
 
 pub use state::AppState;
 
@@ -13,9 +14,17 @@ pub fn run() {
     });
     let app_state = AppState::new(storage);
 
+    let telemetry_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let telemetry_running_clone = std::sync::Arc::clone(&telemetry_running);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(app_state)
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            telemetry::spawn_telemetry_emitter(handle, telemetry_running_clone);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::devices::get_audio_devices,
             commands::devices::set_output_device,

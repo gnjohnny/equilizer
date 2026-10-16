@@ -293,4 +293,19 @@ impl AppState {
 
         Ok(preset)
     }
+
+    /// Queries the current audio telemetry snapshot from the active pipeline.
+    pub fn telemetry_snapshot(&self) -> crate::audio::TelemetrySnapshot {
+        if let Ok(lock) = self.pipeline.lock() {
+            if let Some(ref p) = *lock {
+                return p.telemetry_snapshot();
+            }
+        }
+        crate::audio::TelemetrySnapshot {
+            peak_l: 0.0,
+            peak_r: 0.0,
+            limiter_active: false,
+            gain_reduction_db: 0.0,
+        }
+    }
 }
