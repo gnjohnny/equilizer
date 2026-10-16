@@ -3,6 +3,7 @@ pub mod benchmark;
 pub mod buffer;
 pub mod capture;
 pub mod dsp;
+pub mod limiter;
 pub mod pipeline;
 pub mod preamp;
 pub mod render;
@@ -11,6 +12,10 @@ pub use bass_boost::{BassBoostConfig, BassBoostEngine, BassBoostMode, DEFAULT_BA
 pub use benchmark::{benchmark_ring_buffer_memory, calculate_theoretical_latency_ms, LatencyBenchmarkResult};
 pub use capture::WasapiCapture;
 pub use dsp::{BiquadCoefficients, BiquadFilterChain, EqBandConfig, FilterType, StereoBiquad};
+pub use limiter::{
+    Limiter, LimiterConfig, DEFAULT_LIMITER_ATTACK_MS, DEFAULT_LIMITER_CEILING_DB,
+    DEFAULT_LIMITER_KNEE_DB, DEFAULT_LIMITER_RELEASE_MS, DEFAULT_LIMITER_THRESHOLD_DB,
+};
 pub use pipeline::AudioPipeline;
 pub use preamp::{PreampStage, DEFAULT_PREAMP_GAIN_DB, MAX_PREAMP_GAIN_DB, MIN_PREAMP_GAIN_DB};
 pub use render::WasapiRender;
