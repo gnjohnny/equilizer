@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   EqBand,
   BassBoostConfig,
@@ -59,12 +60,10 @@ export function useEqState({
     if (!isTauri()) return;
 
     let unlisten: (() => void) | undefined;
-    import("@tauri-apps/api/event").then(({ listen }) => {
-      listen<boolean>("app:bypass-changed", (event) => {
-        setIsBypassed(event.payload);
-      }).then((dispose) => {
-        unlisten = dispose;
-      });
+    listen<boolean>("app:bypass-changed", (event) => {
+      setIsBypassed(event.payload);
+    }).then((dispose) => {
+      unlisten = dispose;
     });
 
     return () => {

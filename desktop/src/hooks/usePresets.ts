@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   EqualizerPreset,
   FACTORY_PRESETS,
@@ -79,14 +80,12 @@ export function usePresets(): UsePresetsReturn {
     if (!isTauri()) return;
 
     let unlisten: (() => void) | undefined;
-    import("@tauri-apps/api/event").then(({ listen }) => {
-      listen<EqualizerPreset>("app:preset-changed", (event) => {
-        if (event.payload?.id) {
-          setActivePresetId(event.payload.id);
-        }
-      }).then((dispose) => {
-        unlisten = dispose;
-      });
+    listen<EqualizerPreset>("app:preset-changed", (event) => {
+      if (event.payload?.id) {
+        setActivePresetId(event.payload.id);
+      }
+    }).then((dispose) => {
+      unlisten = dispose;
     });
 
     return () => {

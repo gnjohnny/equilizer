@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { AudioDevice, MOCK_AUDIO_DEVICES } from "../types/audio";
 
 export interface UseAudioDevicesReturn {
@@ -91,19 +92,17 @@ export function useAudioDevices(): UseAudioDevicesReturn {
     if (!isTauri()) return;
 
     let unlisten: (() => void) | undefined;
-    import("@tauri-apps/api/event").then(({ listen }) => {
-      listen<{ disconnectedId: string; fallbackId: string }>(
-        "audio:device-change",
-        (event) => {
-          console.warn(
-            `Audio endpoint disconnected: ${event.payload.disconnectedId}. Falling back to ${event.payload.fallbackId}.`
-          );
-          setSelectedDeviceId("default");
-          refreshDevices();
-        }
-      ).then((dispose) => {
-        unlisten = dispose;
-      });
+    listen<{ disconnectedId: string; fallbackId: string }>(
+      "audio:device-change",
+      (event) => {
+        console.warn(
+          `Audio endpoint disconnected: ${event.payload.disconnectedId}. Falling back to ${event.payload.fallbackId}.`
+        );
+        setSelectedDeviceId("default");
+        refreshDevices();
+      }
+    ).then((dispose) => {
+      unlisten = dispose;
     });
 
     return () => {
