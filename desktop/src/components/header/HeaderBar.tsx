@@ -31,6 +31,31 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onNewPreset,
   onDeletePreset,
 }) => {
+  const [isSystemRouted, setIsSystemRouted] = React.useState<boolean>(true);
+
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      import("@tauri-apps/api/core").then(({ invoke }) => {
+        invoke<boolean>("get_routing_status")
+          .then((routed) => setIsSystemRouted(routed))
+          .catch(() => {});
+      });
+    }
+  }, []);
+
+  const handleToggleRouting = async () => {
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const nextState = !isSystemRouted;
+        const res = await invoke<boolean>("toggle_system_routing", { enable: nextState });
+        setIsSystemRouted(res);
+      } catch (err) {
+        console.error("Failed to toggle system audio routing:", err);
+      }
+    }
+  };
+
   const handleMinimize = async () => {
     try {
       if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
@@ -110,6 +135,34 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
       <div className="flex-1 flex items-center justify-center min-w-0 px-2 overflow-hidden">
         {/* Expanded View for Wide Displays (xl: 1280px+) */}
         <div className="hidden xl:flex items-center gap-2.5 text-xs whitespace-nowrap">
+          <button
+            type="button"
+            onClick={handleToggleRouting}
+            title={
+              isSystemRouted
+                ? "System audio is automatically routed through Equilizer. Click to switch to direct audio."
+                : "System audio is playing directly to physical hardware. Click to route through Equilizer."
+            }
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-base/80 border border-surface-border font-mono text-[11px] hover:border-slate-500 cursor-pointer transition-colors"
+          >
+            <span className="text-text-muted">System EQ:</span>
+            <span
+              className={
+                isSystemRouted
+                  ? "text-accent-emerald font-semibold flex items-center gap-1"
+                  : "text-amber-400 font-semibold flex items-center gap-1"
+              }
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isSystemRouted
+                    ? "bg-accent-emerald shadow-[0_0_6px_var(--accent-emerald)]"
+                    : "bg-amber-400"
+                }`}
+              />
+              {isSystemRouted ? "Active" : "Direct"}
+            </span>
+          </button>
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-base/80 border border-surface-border font-mono text-[11px]">
             <span className="text-text-muted">Engine:</span>
             <span className="text-text-secondary">DF-II Transposed</span>
@@ -134,21 +187,37 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
         {/* Compact Streamlined Hardware Badge for Standard Desktops (md to lg: 960px - 1279px) */}
         <div className="hidden md:flex xl:hidden items-center gap-2 text-xs whitespace-nowrap">
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded bg-surface-base/80 border border-surface-border font-mono text-[11px]">
-            <span className="text-text-muted">Latency:</span>
-            <span className="text-accent-cyan font-bold">&lt; 12.4 ms</span>
-            <span className="text-surface-border">•</span>
-            <span className="text-text-muted">WASAPI:</span>
+          <button
+            type="button"
+            onClick={handleToggleRouting}
+            title={
+              isSystemRouted
+                ? "System audio is automatically routed through Equilizer. Click to switch to direct audio."
+                : "System audio is playing directly to physical hardware. Click to route through Equilizer."
+            }
+            className="flex items-center gap-2 px-2.5 py-1 rounded bg-surface-base/80 border border-surface-border font-mono text-[11px] hover:border-slate-500 cursor-pointer transition-colors"
+          >
+            <span className="text-text-muted">System EQ:</span>
             <span
               className={
-                isBypassed
-                  ? "text-amber-400 font-semibold"
-                  : "text-accent-emerald font-semibold"
+                isSystemRouted
+                  ? "text-accent-emerald font-semibold flex items-center gap-1"
+                  : "text-amber-400 font-semibold flex items-center gap-1"
               }
             >
-              {isBypassed ? "Bypassed" : "48 kHz"}
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  isSystemRouted
+                    ? "bg-accent-emerald shadow-[0_0_6px_var(--accent-emerald)]"
+                    : "bg-amber-400"
+                }`}
+              />
+              {isSystemRouted ? "Active" : "Direct"}
             </span>
-          </div>
+            <span className="text-surface-border">•</span>
+            <span className="text-text-muted">Latency:</span>
+            <span className="text-accent-cyan font-bold">&lt; 12.4 ms</span>
+          </button>
         </div>
       </div>
 

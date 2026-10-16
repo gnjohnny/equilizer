@@ -3,6 +3,7 @@ pub mod benchmark;
 pub mod buffer;
 pub mod capture;
 pub mod dsp;
+pub mod endpoint_policy;
 pub mod limiter;
 pub mod monitor;
 pub mod params;
@@ -10,6 +11,7 @@ pub mod pipeline;
 pub mod preamp;
 pub mod render;
 
+pub use endpoint_policy::{get_default_endpoint, switch_default_endpoint};
 pub use bass_boost::{BassBoostConfig, BassBoostEngine, BassBoostMode, DEFAULT_BASS_BOOST_Q};
 pub use benchmark::{
     benchmark_ring_buffer_memory, calculate_theoretical_latency_ms, get_current_working_set_bytes,

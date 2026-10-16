@@ -5,6 +5,9 @@ use tauri::{AppHandle, Manager};
 /// Gracefully terminates the application process.
 #[tauri::command]
 pub fn exit_app(app: AppHandle) {
+    if let Some(state) = app.try_state::<crate::state::AppState>() {
+        let _ = state.restore_system_routing();
+    }
     app.exit(0);
 }
 

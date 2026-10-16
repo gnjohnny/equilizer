@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use crate::audio::{AudioError, AudioPipeline, LimiterConfig};
 use crate::storage::StorageManager;
@@ -6,6 +7,8 @@ use crate::storage::StorageManager;
 pub struct AppState {
     pub pipeline: Mutex<Option<AudioPipeline>>,
     pub storage: StorageManager,
+    pub original_default_endpoint_id: Mutex<Option<String>>,
+    pub is_system_routed: AtomicBool,
 }
 
 impl AppState {
@@ -87,6 +90,10 @@ impl AppState {
         let _ = storage.ensure_initialized();
         let settings = storage.load_settings().unwrap_or_default();
 
+        // Query the active system default audio endpoint before any changes
+        let original_endpoint = crate::audio::get_default_endpoint().ok();
+        let original_id = original_endpoint.as_ref().map(|(_, id)| id.clone());
+
         let (capture_target, render_target) = Self::resolve_pipeline_routing(
             settings.selected_device_id.as_deref(),
             settings.capture_device_id.as_deref(),
@@ -99,6 +106,27 @@ impl AppState {
         .or_else(|_| AudioPipeline::from_default_device())
         .ok();
 
+        let mut is_routed = false;
+
+        // If capture was resolved to a virtual sink (e.g. Boom Audio),
+        // automatically switch Windows system audio to that virtual sink so all sound flows into Equilizer!
+        if let Some(ref cap) = capture_target {
+            let cap_lower = cap.to_lowercase();
+            if cap_lower.contains("boom")
+                || cap_lower.contains("cable")
+                || cap_lower.contains("virtual")
+                || cap_lower.contains("voicemeeter")
+            {
+                if let Ok(switched) = crate::audio::switch_default_endpoint(cap) {
+                    println!(
+                        "Successfully routed Windows system audio to virtual sink '{}'",
+                        switched
+                    );
+                    is_routed = true;
+                }
+            }
+        }
+
         if let Some(ref p) = pipeline {
             Self::sync_pipeline_parameters(p, &storage, &settings);
             if let Err(e) = p.start() {
@@ -109,7 +137,52 @@ impl AppState {
         Self {
             pipeline: Mutex::new(pipeline),
             storage,
+            original_default_endpoint_id: Mutex::new(original_id),
+            is_system_routed: AtomicBool::new(is_routed),
         }
+    }
+
+    /// Restores the original physical playback endpoint as Windows default audio device.
+    pub fn restore_system_routing(&self) -> Result<(), String> {
+        let lock = self.original_default_endpoint_id.lock().unwrap();
+        if let Some(ref orig_id) = *lock {
+            crate::audio::switch_default_endpoint(orig_id)?;
+            self.is_system_routed.store(false, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+
+    /// Activates system routing by setting Windows default audio endpoint to the capture virtual sink.
+    pub fn activate_system_routing(&self) -> Result<(), String> {
+        let settings = self.storage.load_settings().unwrap_or_default();
+        let (capture_target, _) = Self::resolve_pipeline_routing(
+            settings.selected_device_id.as_deref(),
+            settings.capture_device_id.as_deref(),
+        );
+
+        if let Some(ref cap) = capture_target {
+            crate::audio::switch_default_endpoint(cap)?;
+            self.is_system_routed.store(true, Ordering::SeqCst);
+            Ok(())
+        } else {
+            Err("No virtual audio sink available to route system audio".to_string())
+        }
+    }
+
+    /// Toggles system audio routing to the virtual capture sink on or off.
+    pub fn toggle_system_routing(&self, enable: bool) -> Result<bool, String> {
+        if enable {
+            self.activate_system_routing()?;
+            Ok(true)
+        } else {
+            self.restore_system_routing()?;
+            Ok(false)
+        }
+    }
+
+    /// Returns whether system audio is currently routed through the virtual capture sink.
+    pub fn is_system_routed(&self) -> bool {
+        self.is_system_routed.load(Ordering::SeqCst)
     }
 
     /// Returns the currently active (capture_device_name, render_device_name) tuple if pipeline is initialized.
@@ -427,6 +500,12 @@ impl AppState {
             limiter_active: false,
             gain_reduction_db: 0.0,
         }
+    }
+}
+
+impl Drop for AppState {
+    fn drop(&mut self) {
+        let _ = self.restore_system_routing();
     }
 }
 

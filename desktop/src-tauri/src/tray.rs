@@ -92,6 +92,9 @@ pub fn setup_system_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Erro
                     }
                 }
                 MENU_EXIT => {
+                    if let Some(state) = app.try_state::<AppState>() {
+                        let _ = state.restore_system_routing();
+                    }
                     app.exit(0);
                 }
                 preset_id if preset_id.starts_with(PRESET_PREFIX) => {

@@ -61,6 +61,8 @@ pub fn run() {
             commands::devices::get_audio_devices,
             commands::devices::set_output_device,
             commands::devices::set_audio_routing,
+            commands::devices::get_routing_status,
+            commands::devices::toggle_system_routing,
             commands::devices::start_audio_pipeline,
             commands::devices::pause_audio_pipeline,
             commands::dsp::update_eq_bands,

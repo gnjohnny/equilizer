@@ -29,6 +29,21 @@ pub fn set_audio_routing(
     state.set_audio_routing(capture_device_id, render_device_id)
 }
 
+/// Returns whether system audio is currently routed through the virtual capture sink.
+#[tauri::command]
+pub fn get_routing_status(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.is_system_routed())
+}
+
+/// Toggles system audio routing to the virtual capture sink on or off.
+#[tauri::command]
+pub fn toggle_system_routing(
+    state: State<'_, AppState>,
+    enable: bool,
+) -> Result<bool, String> {
+    state.toggle_system_routing(enable)
+}
+
 /// Starts audio playback and loopback capture streaming on the active pipeline.
 #[tauri::command]
 pub fn start_audio_pipeline(state: State<'_, AppState>) -> Result<(), String> {
