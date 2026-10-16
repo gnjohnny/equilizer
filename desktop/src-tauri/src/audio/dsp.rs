@@ -22,6 +22,19 @@ pub struct EqBandConfig {
     pub q: f32,
 }
 
+impl Default for EqBandConfig {
+    fn default() -> Self {
+        Self {
+            id: 1,
+            enabled: true,
+            filter_type: FilterType::Peaking,
+            frequency_hz: 1000.0,
+            gain_db: 0.0,
+            q: 1.0,
+        }
+    }
+}
+
 /// Normalized biquad filter transfer function coefficients:
 /// H(z) = (b0 + b1*z^-1 + b2*z^-2) / (1 + a1*z^-1 + a2*z^-2)
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -1,7 +1,12 @@
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
+use crate::audio::bass_boost::BassBoostConfig;
 use crate::audio::buffer::AudioRingBuffer;
 use crate::audio::capture::WasapiCapture;
+use crate::audio::dsp::EqBandConfig;
+use crate::audio::limiter::LimiterConfig;
+use crate::audio::params::{AudioTelemetry, DspParamSender, TelemetrySnapshot};
 use crate::audio::render::WasapiRender;
 use crate::audio::AudioError;
 
@@ -88,6 +93,80 @@ impl AudioPipeline {
     pub fn channels(&self) -> u16 {
         self.render.channels()
     }
+
+    /// Returns a reference to the parameter command sender for dispatching DSP updates.
+    #[inline]
+    pub fn param_sender(&self) -> &DspParamSender {
+        self.render.param_sender()
+    }
+
+    /// Returns a reference to the shared real-time audio telemetry state.
+    #[inline]
+    pub fn telemetry(&self) -> &Arc<AudioTelemetry> {
+        self.render.telemetry()
+    }
+
+    /// Queries a point-in-time snapshot of audio telemetry (peaks, limiter, gain reduction).
+    #[inline]
+    pub fn telemetry_snapshot(&self) -> TelemetrySnapshot {
+        self.render.telemetry().snapshot()
+    }
+
+    /// Dispatches master bypass state to the DSP engine.
+    pub fn set_bypass(&self, bypassed: bool) -> Result<(), AudioError> {
+        self.render
+            .param_sender()
+            .set_bypass(bypassed)
+            .map_err(|e| AudioError::BackendError(format!("Failed to enqueue bypass command: {}", e)))
+    }
+
+    /// Dispatches master pre-amp gain in decibels (-20 dB to +6 dB).
+    pub fn set_preamp_gain(&self, gain_db: f32) -> Result<(), AudioError> {
+        self.render
+            .param_sender()
+            .set_preamp_gain(gain_db)
+            .map_err(|e| AudioError::BackendError(format!("Failed to enqueue preamp command: {}", e)))
+    }
+
+    /// Dispatches updated bass boost configuration to the DSP engine.
+    pub fn set_bass_boost(&self, config: BassBoostConfig) -> Result<(), AudioError> {
+        self.render
+            .param_sender()
+            .set_bass_boost(config)
+            .map_err(|e| AudioError::BackendError(format!("Failed to enqueue bass boost command: {}", e)))
+    }
+
+    /// Dispatches updated soft-knee limiter configuration to the DSP engine.
+    pub fn set_limiter(&self, config: LimiterConfig) -> Result<(), AudioError> {
+        self.render
+            .param_sender()
+            .set_limiter(config)
+            .map_err(|e| AudioError::BackendError(format!("Failed to enqueue limiter command: {}", e)))
+    }
+
+    /// Updates a single equalizer band (index 0 to 9).
+    pub fn update_band(&self, index: usize, config: EqBandConfig) -> Result<(), AudioError> {
+        self.render
+            .param_sender()
+            .update_band(index, config)
+            .map_err(|e| AudioError::BackendError(format!("Failed to enqueue update band command: {}", e)))
+    }
+
+    /// Atomically updates all 10 equalizer bands.
+    pub fn update_all_bands(&self, bands: [EqBandConfig; 10]) -> Result<(), AudioError> {
+        self.render
+            .param_sender()
+            .update_all_bands(bands)
+            .map_err(|e| AudioError::BackendError(format!("Failed to enqueue update all bands command: {}", e)))
+    }
+
+    /// Resets all filter and limiter state delay buffers to silence.
+    pub fn reset_dsp(&self) -> Result<(), AudioError> {
+        self.render
+            .param_sender()
+            .reset_state()
+            .map_err(|e| AudioError::BackendError(format!("Failed to enqueue reset state command: {}", e)))
+    }
 }
 
 #[cfg(test)]
@@ -124,6 +203,33 @@ mod tests {
             Err(e) => {
                 eprintln!("Audio pipeline creation failed on host: {:?}", e);
             }
+        }
+    }
+
+    #[test]
+    fn test_pipeline_parameter_dispatch() {
+        let host = cpal::default_host();
+        if host.default_output_device().is_none() {
+            eprintln!("Skipping pipeline parameter test: no audio output device present on host.");
+            return;
+        }
+
+        if let Ok(pipeline) = AudioPipeline::from_default_device() {
+            assert!(pipeline.set_bypass(true).is_ok());
+            assert!(pipeline.set_preamp_gain(-3.0).is_ok());
+            assert!(pipeline.set_bass_boost(BassBoostConfig::default()).is_ok());
+            assert!(pipeline.set_limiter(LimiterConfig::default()).is_ok());
+            assert!(pipeline.update_band(0, EqBandConfig::default()).is_ok());
+            assert!(pipeline.update_all_bands(std::array::from_fn(|i| EqBandConfig {
+                id: (i + 1) as u8,
+                ..Default::default()
+            })).is_ok());
+            assert!(pipeline.reset_dsp().is_ok());
+
+            let snapshot = pipeline.telemetry_snapshot();
+            assert_eq!(snapshot.peak_l, 0.0);
+            assert_eq!(snapshot.peak_r, 0.0);
+            assert!(!snapshot.limiter_active);
         }
     }
 }

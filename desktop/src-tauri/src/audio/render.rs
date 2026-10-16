@@ -6,6 +6,7 @@ use cpal::{Device, SampleFormat, Stream, StreamConfig, SupportedStreamConfig};
 
 use crate::audio::buffer::AudioConsumer;
 use crate::audio::capture::find_output_device;
+use crate::audio::params::{create_param_channel, AudioTelemetry, DspParamSender, DspProcessor};
 use crate::audio::AudioError;
 
 /// Renders multi-channel or mono f32 output slices from an interleaved stereo consumer.
@@ -69,6 +70,8 @@ pub struct WasapiRender {
     sample_format: SampleFormat,
     underrun_count: Arc<AtomicUsize>,
     overflow_count: Arc<AtomicUsize>,
+    param_sender: DspParamSender,
+    telemetry: Arc<AudioTelemetry>,
 }
 
 impl WasapiRender {
@@ -107,6 +110,11 @@ impl WasapiRender {
 
         let prebuffer_threshold = Self::DEFAULT_PREBUFFER_THRESHOLD;
 
+        let (param_sender, param_receiver) =
+            create_param_channel(DspProcessor::DEFAULT_CHANNEL_CAPACITY);
+        let telemetry = Arc::new(AudioTelemetry::new());
+        let telemetry_clone = Arc::clone(&telemetry);
+
         let err_fn = move |_err: cpal::StreamError| {
             // Real-time audio error callback: zero-allocation, no panics
         };
@@ -115,6 +123,7 @@ impl WasapiRender {
             SampleFormat::F32 => {
                 let mut consumer = consumer;
                 let ch_usize = channels as usize;
+                let mut dsp = DspProcessor::new(sample_rate, param_receiver, telemetry_clone);
                 device
                     .build_output_stream(
                         &config,
@@ -140,6 +149,7 @@ impl WasapiRender {
                                     underruns_clone
                                         .fetch_add(data.len() - read, Ordering::Relaxed);
                                 }
+                                dsp.process_interleaved_stereo(data);
                             } else {
                                 render_multichannel_f32(
                                     &mut consumer,
@@ -156,6 +166,7 @@ impl WasapiRender {
             }
             SampleFormat::I16 => {
                 let mut consumer = consumer;
+                let mut dsp = DspProcessor::new(sample_rate, param_receiver, telemetry_clone);
                 device
                     .build_output_stream(
                         &config,
@@ -177,17 +188,18 @@ impl WasapiRender {
                             while offset < data.len() {
                                 let chunk_len = (data.len() - offset).min(128);
                                 let read = consumer.pop_slice(&mut stack_buf[..chunk_len]);
-                                for i in 0..read {
-                                    let s = stack_buf[i];
-                                    let scaled = (s * 32767.0).clamp(-32768.0, 32767.0);
-                                    data[offset + i] = scaled as i16;
-                                }
                                 if read < chunk_len {
-                                    for i in read..chunk_len {
-                                        data[offset + i] = 0;
+                                    for s in &mut stack_buf[read..chunk_len] {
+                                        *s = 0.0;
                                     }
                                     underruns_clone
                                         .fetch_add(chunk_len - read, Ordering::Relaxed);
+                                }
+                                dsp.process_interleaved_stereo(&mut stack_buf[..chunk_len]);
+                                for i in 0..chunk_len {
+                                    let s = stack_buf[i];
+                                    let scaled = (s * 32767.0).clamp(-32768.0, 32767.0);
+                                    data[offset + i] = scaled as i16;
                                 }
                                 offset += chunk_len;
                             }
@@ -199,6 +211,7 @@ impl WasapiRender {
             }
             SampleFormat::U16 => {
                 let mut consumer = consumer;
+                let mut dsp = DspProcessor::new(sample_rate, param_receiver, telemetry_clone);
                 device
                     .build_output_stream(
                         &config,
@@ -220,17 +233,18 @@ impl WasapiRender {
                             while offset < data.len() {
                                 let chunk_len = (data.len() - offset).min(128);
                                 let read = consumer.pop_slice(&mut stack_buf[..chunk_len]);
-                                for i in 0..read {
-                                    let s = stack_buf[i];
-                                    let scaled = ((s * 32767.0) + 32768.0).clamp(0.0, 65535.0);
-                                    data[offset + i] = scaled as u16;
-                                }
                                 if read < chunk_len {
-                                    for i in read..chunk_len {
-                                        data[offset + i] = 32768;
+                                    for s in &mut stack_buf[read..chunk_len] {
+                                        *s = 0.0;
                                     }
                                     underruns_clone
                                         .fetch_add(chunk_len - read, Ordering::Relaxed);
+                                }
+                                dsp.process_interleaved_stereo(&mut stack_buf[..chunk_len]);
+                                for i in 0..chunk_len {
+                                    let s = stack_buf[i];
+                                    let scaled = ((s * 32767.0) + 32768.0).clamp(0.0, 65535.0);
+                                    data[offset + i] = scaled as u16;
                                 }
                                 offset += chunk_len;
                             }
@@ -256,6 +270,8 @@ impl WasapiRender {
             sample_format,
             underrun_count,
             overflow_count,
+            param_sender,
+            telemetry,
         })
     }
 
@@ -325,6 +341,18 @@ impl WasapiRender {
     /// Resets the underrun counter to zero and returns the previous count.
     pub fn reset_underrun_count(&self) -> usize {
         self.underrun_count.swap(0, Ordering::Relaxed)
+    }
+
+    /// Handle to send lock-free parameter update commands to the real-time audio thread.
+    #[inline]
+    pub fn param_sender(&self) -> &DspParamSender {
+        &self.param_sender
+    }
+
+    /// Handle to query real-time peak meter and limiter telemetry.
+    #[inline]
+    pub fn telemetry(&self) -> &Arc<AudioTelemetry> {
+        &self.telemetry
     }
 }
 
