@@ -297,6 +297,12 @@ impl AudioConsumer {
         self.len() >= self.shared.capacity
     }
 
+    /// Total count of samples dropped due to buffer overflow since creation or last reset.
+    #[inline]
+    pub fn overflow_count(&self) -> usize {
+        self.shared.overflow_count.load(Ordering::Relaxed)
+    }
+
     /// Reads up to `dest.len()` samples from the buffer into `dest`.
     /// Returns the number of samples actually read.
     pub fn pop_slice(&mut self, dest: &mut [f32]) -> usize {

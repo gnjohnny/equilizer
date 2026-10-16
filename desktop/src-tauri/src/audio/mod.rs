@@ -1,5 +1,11 @@
 pub mod buffer;
 pub mod capture;
+pub mod pipeline;
+pub mod render;
+
+pub use capture::WasapiCapture;
+pub use pipeline::AudioPipeline;
+pub use render::WasapiRender;
 
 use cpal::traits::{DeviceTrait, HostTrait};
 use serde::{Deserialize, Serialize};
