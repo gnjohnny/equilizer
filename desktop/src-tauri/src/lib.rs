@@ -60,6 +60,7 @@ pub fn run() {
             commands::app::hide_main_window,
             commands::devices::get_audio_devices,
             commands::devices::set_output_device,
+            commands::devices::set_audio_routing,
             commands::devices::start_audio_pipeline,
             commands::devices::pause_audio_pipeline,
             commands::dsp::update_eq_bands,

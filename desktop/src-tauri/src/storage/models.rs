@@ -162,6 +162,8 @@ pub struct EqualizerPreset {
 pub struct AppConfig {
     pub active_preset_id: String,
     pub selected_device_id: Option<String>,
+    #[serde(default)]
+    pub capture_device_id: Option<String>,
     pub is_bypassed: bool,
     pub limiter_enabled: bool,
     pub start_minimized_to_tray: bool,
@@ -173,6 +175,7 @@ impl Default for AppConfig {
         Self {
             active_preset_id: "flat".to_string(),
             selected_device_id: None,
+            capture_device_id: None,
             is_bypassed: false,
             limiter_enabled: true,
             start_minimized_to_tray: false,
@@ -342,6 +345,7 @@ mod tests {
         let cfg = AppConfig::default();
         assert_eq!(cfg.active_preset_id, "flat");
         assert_eq!(cfg.selected_device_id, None);
+        assert_eq!(cfg.capture_device_id, None);
         assert!(!cfg.is_bypassed);
         assert!(cfg.limiter_enabled);
         assert!(!cfg.start_minimized_to_tray);

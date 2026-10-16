@@ -9,7 +9,7 @@ pub fn get_audio_devices() -> Result<Vec<AudioDeviceInfo>, String> {
     enumerate_output_devices().map_err(|e| e.to_string())
 }
 
-/// Reroutes audio streaming to the specified output hardware device.
+/// Reroutes audio streaming to the specified output hardware device while maintaining decoupled loopback capture.
 /// Passing `None` or an empty string selects the operating system default audio endpoint.
 #[tauri::command]
 pub fn set_output_device(
@@ -17,6 +17,16 @@ pub fn set_output_device(
     device_id: Option<String>,
 ) -> Result<(), String> {
     state.set_output_device(device_id)
+}
+
+/// Sets independent capture and render routing for the audio pipeline.
+#[tauri::command]
+pub fn set_audio_routing(
+    state: State<'_, AppState>,
+    capture_device_id: Option<String>,
+    render_device_id: Option<String>,
+) -> Result<(), String> {
+    state.set_audio_routing(capture_device_id, render_device_id)
 }
 
 /// Starts audio playback and loopback capture streaming on the active pipeline.

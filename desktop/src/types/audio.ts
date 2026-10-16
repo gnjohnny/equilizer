@@ -43,6 +43,7 @@ export interface AudioDevice {
 export interface AppConfig {
   activePresetId: string;
   selectedDeviceId: string | null; // null = System Default
+  captureDeviceId?: string | null;
   isBypassed: boolean;
   limiterEnabled: boolean;
   startMinimizedToTray: boolean;

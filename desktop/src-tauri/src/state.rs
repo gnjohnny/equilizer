@@ -9,19 +9,95 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Automatically resolves the optimal decoupled capture and render devices.
+    /// If a virtual audio sink (e.g., Boom Audio, VB-Cable, Voicemeeter) exists on the host,
+    /// it is selected for loopback capture, while physical hardware is selected for render output.
+    pub fn resolve_pipeline_routing(
+        requested_render: Option<&str>,
+        requested_capture: Option<&str>,
+    ) -> (Option<String>, Option<String>) {
+        let devices = crate::audio::enumerate_output_devices().unwrap_or_default();
+        if devices.is_empty() {
+            return (
+                requested_capture.map(|s| s.to_string()),
+                requested_render.map(|s| s.to_string()),
+            );
+        }
+
+        let is_virtual = |name: &str| -> bool {
+            let n = name.to_lowercase();
+            n.contains("boom")
+                || n.contains("cable")
+                || n.contains("virtual")
+                || n.contains("voicemeeter")
+                || n.contains("stereo mix")
+        };
+
+        // 1. Determine Capture Device
+        let capture_target = if let Some(req) = requested_capture.filter(|s| !s.trim().is_empty()) {
+            Some(req.to_string())
+        } else {
+            // Auto-detect virtual device to serve as loopback recording tap
+            devices
+                .iter()
+                .find(|d| is_virtual(&d.name))
+                .map(|d| d.name.clone())
+        };
+
+        // 2. Determine Render Device
+        let render_target = if let Some(req) = requested_render.filter(|s| !s.trim().is_empty()) {
+            Some(req.to_string())
+        } else if let Some(ref cap) = capture_target {
+            // Capture is assigned to a virtual sink; route render to physical output hardware
+            devices
+                .iter()
+                .find(|d| !is_virtual(&d.name) && d.name != *cap)
+                .map(|d| d.name.clone())
+                .or_else(|| {
+                    devices
+                        .iter()
+                        .find(|d| d.is_default && d.name != *cap)
+                        .map(|d| d.name.clone())
+                })
+        } else {
+            devices
+                .iter()
+                .find(|d| d.is_default)
+                .map(|d| d.name.clone())
+        };
+
+        // 3. Circular Feedback Protection:
+        // If capture and render resolved to the same physical device, attempt to decouple via virtual sink
+        let (final_capture, final_render) = match (&capture_target, &render_target) {
+            (Some(c), Some(r)) if c == r && !is_virtual(c) => {
+                if let Some(virt) = devices.iter().find(|d| is_virtual(&d.name)) {
+                    (Some(virt.name.clone()), Some(r.clone()))
+                } else {
+                    (capture_target, render_target)
+                }
+            }
+            _ => (capture_target, render_target),
+        };
+
+        (final_capture, final_render)
+    }
+
     /// Creates and initializes application state with the given storage manager.
     pub fn new(storage: StorageManager) -> Self {
         let _ = storage.ensure_initialized();
         let settings = storage.load_settings().unwrap_or_default();
 
-        let pipeline = match settings.selected_device_id.as_deref() {
-            Some(dev_name) if !dev_name.trim().is_empty() => {
-                AudioPipeline::from_device_name(dev_name)
-                    .or_else(|_| AudioPipeline::from_default_device())
-                    .ok()
-            }
-            _ => AudioPipeline::from_default_device().ok(),
-        };
+        let (capture_target, render_target) = Self::resolve_pipeline_routing(
+            settings.selected_device_id.as_deref(),
+            settings.capture_device_id.as_deref(),
+        );
+
+        let pipeline = AudioPipeline::new_routed(
+            capture_target.as_deref(),
+            render_target.as_deref(),
+        )
+        .or_else(|_| AudioPipeline::from_default_device())
+        .ok();
 
         if let Some(ref p) = pipeline {
             Self::sync_pipeline_parameters(p, &storage, &settings);
@@ -34,6 +110,17 @@ impl AppState {
             pipeline: Mutex::new(pipeline),
             storage,
         }
+    }
+
+    /// Returns the currently active (capture_device_name, render_device_name) tuple if pipeline is initialized.
+    pub fn active_devices(&self) -> Option<(String, String)> {
+        let lock = self.pipeline.lock().ok()?;
+        lock.as_ref().map(|p| {
+            (
+                p.capture_device_name().to_string(),
+                p.render_device_name().to_string(),
+            )
+        })
     }
 
     /// Synchronizes active preset parameters (preamp, EQ bands, bass boost, limiter, bypass) to the pipeline.
@@ -61,18 +148,26 @@ impl AppState {
         }
     }
 
-    /// Reroutes audio streaming to the specified output hardware device.
-    /// If `device_id` is None or empty, routes to the system default audio endpoint.
-    pub fn set_output_device(&self, device_id: Option<String>) -> Result<(), String> {
-        let clean_id = device_id.filter(|s| !s.trim().is_empty());
+    /// Sets independent capture and render routing for the audio pipeline and persists them to settings.
+    pub fn set_audio_routing(
+        &self,
+        capture_device_id: Option<String>,
+        render_device_id: Option<String>,
+    ) -> Result<(), String> {
+        let clean_render_id = render_device_id.filter(|s| !s.trim().is_empty());
+        let clean_capture_id = capture_device_id.filter(|s| !s.trim().is_empty());
+
+        let (capture_target, render_target) = Self::resolve_pipeline_routing(
+            clean_render_id.as_deref(),
+            clean_capture_id.as_deref(),
+        );
 
         // Build target pipeline first before acquiring mutex or dropping existing stream
-        let new_pipeline = match clean_id.as_deref() {
-            Some(name) => AudioPipeline::from_device_name(name)
-                .map_err(|e| format!("Failed to initialize audio device '{}': {}", name, e))?,
-            None => AudioPipeline::from_default_device()
-                .map_err(|e| format!("Failed to initialize default audio device: {}", e))?,
-        };
+        let new_pipeline = AudioPipeline::new_routed(
+            capture_target.as_deref(),
+            render_target.as_deref(),
+        )
+        .map_err(|e| format!("Failed to initialize audio routing: {}", e))?;
 
         // Sync DSP parameters to the new pipeline
         if let Ok(settings) = self.storage.load_settings() {
@@ -94,13 +189,25 @@ impl AppState {
 
         *lock = Some(new_pipeline);
 
-        // Persist device selection to disk
+        // Persist routing selection to disk
         if let Ok(mut settings) = self.storage.load_settings() {
-            settings.selected_device_id = clean_id;
+            settings.selected_device_id = clean_render_id;
+            settings.capture_device_id = clean_capture_id;
             let _ = self.storage.save_settings(&settings);
         }
 
         Ok(())
+    }
+
+    /// Reroutes audio playback to the specified output hardware device while maintaining decoupled loopback capture.
+    /// If `device_id` is None or empty, routes to the system default audio endpoint.
+    pub fn set_output_device(&self, device_id: Option<String>) -> Result<(), String> {
+        let current_capture_id = self
+            .storage
+            .load_settings()
+            .ok()
+            .and_then(|s| s.capture_device_id);
+        self.set_audio_routing(current_capture_id, device_id)
     }
 
     /// Gracefully handles device disconnection by resetting to the system default audio endpoint.
@@ -320,5 +427,46 @@ impl AppState {
             limiter_active: false,
             gain_reduction_db: 0.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_pipeline_routing_empty_devices() {
+        let (cap, ren) = AppState::resolve_pipeline_routing(Some("Speakers"), Some("Mic"));
+        assert_eq!(ren, Some("Speakers".to_string()));
+        assert_eq!(cap, Some("Mic".to_string()));
+    }
+
+    #[test]
+    fn test_state_lifecycle_with_routing() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "equilizer_test_routing_state_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let storage = StorageManager::new(&temp_dir);
+        let state = AppState::new(storage);
+
+        // Verify active devices or graceful None on headless
+        let devices = state.active_devices();
+        if let Some((cap, ren)) = devices {
+            assert!(!cap.is_empty());
+            assert!(!ren.is_empty());
+        }
+
+        // Test set_audio_routing with invalid name fails gracefully
+        let res = state.set_audio_routing(
+            Some("NonExistentCaptureDeviceXYZ".to_string()),
+            Some("NonExistentRenderDeviceXYZ".to_string()),
+        );
+        assert!(res.is_err());
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 }

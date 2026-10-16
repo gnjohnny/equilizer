@@ -25,11 +25,26 @@ impl AudioPipeline {
     /// Default buffer capacity: 32,768 f32 samples (~340 ms buffer @ 96 kHz stereo or ~740 ms @ 44.1 kHz).
     pub const DEFAULT_BUFFER_CAPACITY: usize = 32768;
 
-    /// Builds and initializes the complete loopback pass-through pipeline on the system default audio endpoint.
-    pub fn from_default_device() -> Result<Self, AudioError> {
+    /// Builds and initializes the loopback pipeline with decoupled capture and render endpoints.
+    /// If `capture_name` is None or empty, captures from the default output loopback.
+    /// If `render_name` is None or empty, renders to the default output endpoint.
+    pub fn new_routed(
+        capture_name: Option<&str>,
+        render_name: Option<&str>,
+    ) -> Result<Self, AudioError> {
         let (producer, consumer) = AudioRingBuffer::new(Self::DEFAULT_BUFFER_CAPACITY);
-        let capture = WasapiCapture::from_default_device(producer)?;
-        let render = WasapiRender::from_default_device(consumer)?;
+        let capture = match capture_name {
+            Some(name) if !name.trim().is_empty() => {
+                WasapiCapture::from_device_name(name, producer)?
+            }
+            _ => WasapiCapture::from_default_device(producer)?,
+        };
+        let render = match render_name {
+            Some(name) if !name.trim().is_empty() => {
+                WasapiRender::from_device_name(name, consumer)?
+            }
+            _ => WasapiRender::from_default_device(consumer)?,
+        };
 
         Ok(Self {
             capture,
@@ -38,17 +53,14 @@ impl AudioPipeline {
         })
     }
 
-    /// Builds and initializes the complete loopback pass-through pipeline targeting a specific named device.
-    pub fn from_device_name(name: &str) -> Result<Self, AudioError> {
-        let (producer, consumer) = AudioRingBuffer::new(Self::DEFAULT_BUFFER_CAPACITY);
-        let capture = WasapiCapture::from_device_name(name, producer)?;
-        let render = WasapiRender::from_device_name(name, consumer)?;
+    /// Builds and initializes the complete loopback pass-through pipeline on the system default audio endpoint.
+    pub fn from_default_device() -> Result<Self, AudioError> {
+        Self::new_routed(None, None)
+    }
 
-        Ok(Self {
-            capture,
-            render,
-            is_running: AtomicBool::new(false),
-        })
+    /// Builds and initializes the complete loopback pass-through pipeline targeting a specific named device for both capture and render.
+    pub fn from_device_name(name: &str) -> Result<Self, AudioError> {
+        Self::new_routed(Some(name), Some(name))
     }
 
     /// Starts both capture and render streams, beginning live system-wide audio interception and rendering.
@@ -82,8 +94,18 @@ impl AudioPipeline {
         self.render.overflow_count()
     }
 
-    /// Target audio endpoint device name.
+    /// Target audio endpoint device name (render device).
     pub fn device_name(&self) -> &str {
+        self.render.device_name()
+    }
+
+    /// Loopback capture audio endpoint device name.
+    pub fn capture_device_name(&self) -> &str {
+        self.capture.device_name()
+    }
+
+    /// Render playback audio endpoint device name.
+    pub fn render_device_name(&self) -> &str {
         self.render.device_name()
     }
 
@@ -233,6 +255,22 @@ mod tests {
             assert_eq!(snapshot.peak_l, 0.0);
             assert_eq!(snapshot.peak_r, 0.0);
             assert!(!snapshot.limiter_active);
+        }
+    }
+
+    #[test]
+    fn test_pipeline_new_routed() {
+        let host = cpal::default_host();
+        if host.default_output_device().is_none() {
+            eprintln!("Skipping pipeline routed test: no audio output device present on host.");
+            return;
+        }
+
+        let pipeline_result = AudioPipeline::new_routed(None, None);
+        if let Ok(pipeline) = pipeline_result {
+            assert!(!pipeline.capture_device_name().is_empty());
+            assert!(!pipeline.render_device_name().is_empty());
+            assert_eq!(pipeline.device_name(), pipeline.render_device_name());
         }
     }
 }
