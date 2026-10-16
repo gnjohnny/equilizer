@@ -204,153 +204,202 @@ impl<T> Drop for ComPtr<T> {
     }
 }
 
-/// Queries the Windows default audio playback endpoint name and endpoint ID.
-pub fn get_default_endpoint() -> Result<(String, String), String> {
-    unsafe {
-        let _ = CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED);
+static ORIGINAL_ENDPOINT_ID: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
-        let mut enumerator_ptr: *mut c_void = std::ptr::null_mut();
-        let hr = CoCreateInstance(
-            &CLSID_MM_DEVICE_ENUMERATOR,
-            std::ptr::null_mut(),
-            CLSCTX_ALL,
-            &IID_IMM_DEVICE_ENUMERATOR,
-            &mut enumerator_ptr,
-        );
-        if hr < 0 || enumerator_ptr.is_null() {
-            return Err(format!("Failed to create MMDeviceEnumerator: 0x{:08X}", hr));
+/// Caches the known original physical hardware endpoint ID for emergency recovery.
+pub fn record_original_endpoint(endpoint_id: &str) {
+    if let Ok(mut lock) = ORIGINAL_ENDPOINT_ID.lock() {
+        if lock.is_none() {
+            *lock = Some(endpoint_id.to_string());
         }
-        let enumerator = ComPtr::<IMMDeviceEnumeratorVtbl>::new(enumerator_ptr);
-
-        let mut default_dev_ptr: *mut c_void = std::ptr::null_mut();
-        // eRender = 0, eConsole = 0
-        let hr = (enumerator.vtbl().GetDefaultAudioEndpoint)(enumerator.as_ptr(), 0, 0, &mut default_dev_ptr);
-        if hr < 0 || default_dev_ptr.is_null() {
-            return Err(format!("GetDefaultAudioEndpoint failed: 0x{:08X}", hr));
-        }
-        let default_dev = ComPtr::<IMMDeviceVtbl>::new(default_dev_ptr);
-
-        let mut id_raw: *mut u16 = std::ptr::null_mut();
-        (default_dev.vtbl().GetId)(default_dev.as_ptr(), &mut id_raw);
-        let device_id = u16_ptr_to_string(id_raw);
-        if !id_raw.is_null() {
-            CoTaskMemFree(id_raw as *mut c_void);
-        }
-
-        let mut props_ptr: *mut c_void = std::ptr::null_mut();
-        (default_dev.vtbl().OpenPropertyStore)(default_dev.as_ptr(), 0, &mut props_ptr);
-        let props = ComPtr::<IPropertyStoreVtbl>::new(props_ptr);
-
-        let mut pv = std::mem::zeroed::<PropVariant>();
-        (props.vtbl().GetValue)(props.as_ptr(), &PKEY_DEVICE_FRIENDLY_NAME, &mut pv);
-        let name = if pv.vt == VT_LPWSTR && !pv.pwsz_val.is_null() {
-            u16_ptr_to_string(pv.pwsz_val)
-        } else {
-            device_id.clone()
-        };
-        let _ = PropVariantClear(&mut pv);
-
-        Ok((name, device_id))
     }
+}
+
+/// Attempts an emergency restoration of the default playback device to the original
+/// physical audio endpoint (or any non-virtual speaker) during panic or abnormal shutdown.
+pub fn restore_emergency_endpoint() {
+    let target = {
+        ORIGINAL_ENDPOINT_ID
+            .lock()
+            .ok()
+            .and_then(|lock| lock.clone())
+            .unwrap_or_else(|| "Speakers".to_string())
+    };
+    let _ = switch_default_endpoint(&target);
+}
+
+/// Internal COM implementation for querying the default audio playback endpoint.
+unsafe fn get_default_endpoint_inner() -> Result<(String, String), String> {
+    let mut enumerator_ptr: *mut c_void = std::ptr::null_mut();
+    let hr = CoCreateInstance(
+        &CLSID_MM_DEVICE_ENUMERATOR,
+        std::ptr::null_mut(),
+        CLSCTX_ALL,
+        &IID_IMM_DEVICE_ENUMERATOR,
+        &mut enumerator_ptr,
+    );
+    if hr < 0 || enumerator_ptr.is_null() {
+        return Err(format!("Failed to create MMDeviceEnumerator: 0x{:08X}", hr));
+    }
+    let enumerator = ComPtr::<IMMDeviceEnumeratorVtbl>::new(enumerator_ptr);
+
+    let mut default_dev_ptr: *mut c_void = std::ptr::null_mut();
+    // eRender = 0, eConsole = 0
+    let hr = (enumerator.vtbl().GetDefaultAudioEndpoint)(enumerator.as_ptr(), 0, 0, &mut default_dev_ptr);
+    if hr < 0 || default_dev_ptr.is_null() {
+        return Err(format!("GetDefaultAudioEndpoint failed: 0x{:08X}", hr));
+    }
+    let default_dev = ComPtr::<IMMDeviceVtbl>::new(default_dev_ptr);
+
+    let mut id_raw: *mut u16 = std::ptr::null_mut();
+    (default_dev.vtbl().GetId)(default_dev.as_ptr(), &mut id_raw);
+    let device_id = u16_ptr_to_string(id_raw);
+    if !id_raw.is_null() {
+        CoTaskMemFree(id_raw as *mut c_void);
+    }
+
+    let mut props_ptr: *mut c_void = std::ptr::null_mut();
+    (default_dev.vtbl().OpenPropertyStore)(default_dev.as_ptr(), 0, &mut props_ptr);
+    let props = ComPtr::<IPropertyStoreVtbl>::new(props_ptr);
+
+    let mut pv = std::mem::zeroed::<PropVariant>();
+    (props.vtbl().GetValue)(props.as_ptr(), &PKEY_DEVICE_FRIENDLY_NAME, &mut pv);
+    let name = if pv.vt == VT_LPWSTR && !pv.pwsz_val.is_null() {
+        u16_ptr_to_string(pv.pwsz_val)
+    } else {
+        device_id.clone()
+    };
+    let _ = PropVariantClear(&mut pv);
+
+    Ok((name, device_id))
+}
+
+/// Queries the Windows default audio playback endpoint name and endpoint ID.
+/// Executes on a dedicated worker thread with isolated COM MTA apartment,
+/// leaving the main UI thread clean for tao's STA OleInitialize.
+pub fn get_default_endpoint() -> Result<(String, String), String> {
+    std::thread::spawn(move || unsafe {
+        let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED);
+        let res = get_default_endpoint_inner();
+        if hr >= 0 {
+            CoUninitialize();
+        }
+        res
+    })
+    .join()
+    .map_err(|_| "Audio endpoint query thread panicked".to_string())?
+}
+
+/// Internal COM implementation for switching the default playback endpoint.
+unsafe fn switch_default_endpoint_inner(target: &str) -> Result<String, String> {
+    let mut enumerator_ptr: *mut c_void = std::ptr::null_mut();
+    let hr = CoCreateInstance(
+        &CLSID_MM_DEVICE_ENUMERATOR,
+        std::ptr::null_mut(),
+        CLSCTX_ALL,
+        &IID_IMM_DEVICE_ENUMERATOR,
+        &mut enumerator_ptr,
+    );
+    if hr < 0 || enumerator_ptr.is_null() {
+        return Err(format!("Failed to create MMDeviceEnumerator: 0x{:08X}", hr));
+    }
+    let enumerator = ComPtr::<IMMDeviceEnumeratorVtbl>::new(enumerator_ptr);
+
+    let mut collection_ptr: *mut c_void = std::ptr::null_mut();
+    // eRender = 0, DEVICE_STATE_ACTIVE = 1
+    let hr = (enumerator.vtbl().EnumAudioEndpoints)(enumerator.as_ptr(), 0, 1, &mut collection_ptr);
+    if hr < 0 || collection_ptr.is_null() {
+        return Err(format!("EnumAudioEndpoints failed: 0x{:08X}", hr));
+    }
+    let collection = ComPtr::<IMMDeviceCollectionVtbl>::new(collection_ptr);
+
+    let mut count = 0u32;
+    (collection.vtbl().GetCount)(collection.as_ptr(), &mut count);
+
+    let mut matched_id: Option<String> = None;
+    let mut matched_name: Option<String> = None;
+
+    let target_lower = target.to_lowercase();
+
+    for i in 0..count {
+        let mut dev_ptr: *mut c_void = std::ptr::null_mut();
+        if (collection.vtbl().Item)(collection.as_ptr(), i, &mut dev_ptr) >= 0 && !dev_ptr.is_null() {
+            let dev = ComPtr::<IMMDeviceVtbl>::new(dev_ptr);
+
+            let mut id_raw: *mut u16 = std::ptr::null_mut();
+            (dev.vtbl().GetId)(dev.as_ptr(), &mut id_raw);
+            let id_str = u16_ptr_to_string(id_raw);
+            if !id_raw.is_null() {
+                CoTaskMemFree(id_raw as *mut c_void);
+            }
+
+            let mut props_ptr: *mut c_void = std::ptr::null_mut();
+            (dev.vtbl().OpenPropertyStore)(dev.as_ptr(), 0, &mut props_ptr);
+            let props = ComPtr::<IPropertyStoreVtbl>::new(props_ptr);
+
+            let mut pv = std::mem::zeroed::<PropVariant>();
+            (props.vtbl().GetValue)(props.as_ptr(), &PKEY_DEVICE_FRIENDLY_NAME, &mut pv);
+            let friendly_name = if pv.vt == VT_LPWSTR && !pv.pwsz_val.is_null() {
+                u16_ptr_to_string(pv.pwsz_val)
+            } else {
+                id_str.clone()
+            };
+            let _ = PropVariantClear(&mut pv);
+
+            if id_str.eq_ignore_ascii_case(target) || friendly_name.to_lowercase().contains(&target_lower) {
+                matched_id = Some(id_str);
+                matched_name = Some(friendly_name);
+                break;
+            }
+        }
+    }
+
+    let id = matched_id.ok_or_else(|| format!("Target audio device '{}' not found", target))?;
+    let name = matched_name.unwrap_or_else(|| id.clone());
+
+    // Convert target endpoint ID to UTF-16
+    let wide_id: Vec<u16> = id.encode_utf16().chain(std::iter::once(0)).collect();
+
+    let mut policy_config_ptr: *mut c_void = std::ptr::null_mut();
+    let hr = CoCreateInstance(
+        &CLSID_POLICY_CONFIG_CLIENT,
+        std::ptr::null_mut(),
+        CLSCTX_ALL,
+        &IID_POLICY_CONFIG,
+        &mut policy_config_ptr,
+    );
+    if hr < 0 || policy_config_ptr.is_null() {
+        return Err(format!("Failed to create CPolicyConfigClient: 0x{:08X}", hr));
+    }
+    let policy_config = ComPtr::<IPolicyConfigVtbl>::new(policy_config_ptr);
+
+    // eConsole = 0, eMultimedia = 1, eCommunications = 2
+    for role in 0..3 {
+        let res = (policy_config.vtbl().SetDefaultEndpoint)(policy_config.as_ptr(), wide_id.as_ptr(), role);
+        if res < 0 {
+            eprintln!("Warning: SetDefaultEndpoint role {} returned 0x{:08X}", role, res);
+        }
+    }
+
+    Ok(name)
 }
 
 /// Switches Windows default playback endpoint to target device matching friendly name substring or exact ID.
 /// Automatically applies to all three audio roles (Console, Multimedia, Communications).
+/// Executes on a dedicated worker thread with isolated COM MTA apartment,
+/// leaving the main UI thread clean for tao's STA OleInitialize.
 pub fn switch_default_endpoint(target: &str) -> Result<String, String> {
-    unsafe {
-        let _ = CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED);
-
-        let mut enumerator_ptr: *mut c_void = std::ptr::null_mut();
-        let hr = CoCreateInstance(
-            &CLSID_MM_DEVICE_ENUMERATOR,
-            std::ptr::null_mut(),
-            CLSCTX_ALL,
-            &IID_IMM_DEVICE_ENUMERATOR,
-            &mut enumerator_ptr,
-        );
-        if hr < 0 || enumerator_ptr.is_null() {
-            return Err(format!("Failed to create MMDeviceEnumerator: 0x{:08X}", hr));
+    let target = target.to_string();
+    std::thread::spawn(move || unsafe {
+        let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_MULTITHREADED);
+        let res = switch_default_endpoint_inner(&target);
+        if hr >= 0 {
+            CoUninitialize();
         }
-        let enumerator = ComPtr::<IMMDeviceEnumeratorVtbl>::new(enumerator_ptr);
-
-        let mut collection_ptr: *mut c_void = std::ptr::null_mut();
-        // eRender = 0, DEVICE_STATE_ACTIVE = 1
-        let hr = (enumerator.vtbl().EnumAudioEndpoints)(enumerator.as_ptr(), 0, 1, &mut collection_ptr);
-        if hr < 0 || collection_ptr.is_null() {
-            return Err(format!("EnumAudioEndpoints failed: 0x{:08X}", hr));
-        }
-        let collection = ComPtr::<IMMDeviceCollectionVtbl>::new(collection_ptr);
-
-        let mut count = 0u32;
-        (collection.vtbl().GetCount)(collection.as_ptr(), &mut count);
-
-        let mut matched_id: Option<String> = None;
-        let mut matched_name: Option<String> = None;
-
-        let target_lower = target.to_lowercase();
-
-        for i in 0..count {
-            let mut dev_ptr: *mut c_void = std::ptr::null_mut();
-            if (collection.vtbl().Item)(collection.as_ptr(), i, &mut dev_ptr) >= 0 && !dev_ptr.is_null() {
-                let dev = ComPtr::<IMMDeviceVtbl>::new(dev_ptr);
-
-                let mut id_raw: *mut u16 = std::ptr::null_mut();
-                (dev.vtbl().GetId)(dev.as_ptr(), &mut id_raw);
-                let id_str = u16_ptr_to_string(id_raw);
-                if !id_raw.is_null() {
-                    CoTaskMemFree(id_raw as *mut c_void);
-                }
-
-                let mut props_ptr: *mut c_void = std::ptr::null_mut();
-                (dev.vtbl().OpenPropertyStore)(dev.as_ptr(), 0, &mut props_ptr);
-                let props = ComPtr::<IPropertyStoreVtbl>::new(props_ptr);
-
-                let mut pv = std::mem::zeroed::<PropVariant>();
-                (props.vtbl().GetValue)(props.as_ptr(), &PKEY_DEVICE_FRIENDLY_NAME, &mut pv);
-                let friendly_name = if pv.vt == VT_LPWSTR && !pv.pwsz_val.is_null() {
-                    u16_ptr_to_string(pv.pwsz_val)
-                } else {
-                    id_str.clone()
-                };
-                let _ = PropVariantClear(&mut pv);
-
-                if id_str.eq_ignore_ascii_case(target) || friendly_name.to_lowercase().contains(&target_lower) {
-                    matched_id = Some(id_str);
-                    matched_name = Some(friendly_name);
-                    break;
-                }
-            }
-        }
-
-        let id = matched_id.ok_or_else(|| format!("Target audio device '{}' not found", target))?;
-        let name = matched_name.unwrap_or_else(|| id.clone());
-
-        // Convert target endpoint ID to UTF-16
-        let wide_id: Vec<u16> = id.encode_utf16().chain(std::iter::once(0)).collect();
-
-        let mut policy_config_ptr: *mut c_void = std::ptr::null_mut();
-        let hr = CoCreateInstance(
-            &CLSID_POLICY_CONFIG_CLIENT,
-            std::ptr::null_mut(),
-            CLSCTX_ALL,
-            &IID_POLICY_CONFIG,
-            &mut policy_config_ptr,
-        );
-        if hr < 0 || policy_config_ptr.is_null() {
-            return Err(format!("Failed to create CPolicyConfigClient: 0x{:08X}", hr));
-        }
-        let policy_config = ComPtr::<IPolicyConfigVtbl>::new(policy_config_ptr);
-
-        // eConsole = 0, eMultimedia = 1, eCommunications = 2
-        for role in 0..3 {
-            let res = (policy_config.vtbl().SetDefaultEndpoint)(policy_config.as_ptr(), wide_id.as_ptr(), role);
-            if res < 0 {
-                eprintln!("Warning: SetDefaultEndpoint role {} returned 0x{:08X}", role, res);
-            }
-        }
-
-        Ok(name)
-    }
+        res
+    })
+    .join()
+    .map_err(|_| "Audio endpoint switch thread panicked".to_string())?
 }
 
 #[cfg(test)]

@@ -93,6 +93,9 @@ impl AppState {
         // Query the active system default audio endpoint before any changes
         let original_endpoint = crate::audio::get_default_endpoint().ok();
         let original_id = original_endpoint.as_ref().map(|(_, id)| id.clone());
+        if let Some(ref id) = original_id {
+            crate::audio::record_original_endpoint(id);
+        }
 
         let (capture_target, render_target) = Self::resolve_pipeline_routing(
             settings.selected_device_id.as_deref(),

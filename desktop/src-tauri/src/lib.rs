@@ -10,6 +10,13 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Install emergency panic hook to restore physical speakers on unhandled panic
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        audio::restore_emergency_endpoint();
+        prev_hook(panic_info);
+    }));
+
     let storage = storage::StorageManager::from_app_data().unwrap_or_else(|_| {
         let fallback_dir = std::env::temp_dir().join("equilizer");
         storage::StorageManager::new(fallback_dir)
