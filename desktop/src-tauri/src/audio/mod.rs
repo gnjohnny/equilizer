@@ -1,11 +1,13 @@
 pub mod benchmark;
 pub mod buffer;
 pub mod capture;
+pub mod dsp;
 pub mod pipeline;
 pub mod render;
 
 pub use benchmark::{benchmark_ring_buffer_memory, calculate_theoretical_latency_ms, LatencyBenchmarkResult};
 pub use capture::WasapiCapture;
+pub use dsp::{BiquadCoefficients, BiquadFilterChain, EqBandConfig, FilterType, StereoBiquad};
 pub use pipeline::AudioPipeline;
 pub use render::WasapiRender;
 
