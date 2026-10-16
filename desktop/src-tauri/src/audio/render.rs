@@ -10,52 +10,232 @@ use crate::audio::params::{create_param_channel, AudioTelemetry, DspParamSender,
 use crate::audio::AudioError;
 
 /// Renders multi-channel or mono f32 output slices from an interleaved stereo consumer.
+/// Always processes audio through the active 4-stage DSP pipeline and drains parameter commands.
 #[inline]
 fn render_multichannel_f32(
     consumer: &mut AudioConsumer,
+    dsp: &mut DspProcessor,
     data: &mut [f32],
     channels: usize,
     underruns: &AtomicUsize,
 ) {
     if channels == 1 {
-        let mut stereo = [0.0f32; 2];
-        for out in data.iter_mut() {
-            let read = consumer.pop_slice(&mut stereo);
-            if read == 2 {
-                *out = (stereo[0] + stereo[1]) * 0.5;
-            } else if read == 1 {
-                *out = stereo[0];
-                underruns.fetch_add(1, Ordering::Relaxed);
-            } else {
-                *out = 0.0;
-                underruns.fetch_add(1, Ordering::Relaxed);
+        let mut stereo = [0.0f32; 128];
+        let mut offset = 0;
+        while offset < data.len() {
+            let frames = (data.len() - offset).min(64);
+            let needed_samples = frames * 2;
+            let read = consumer.pop_slice(&mut stereo[..needed_samples]);
+            if read < needed_samples {
+                for s in &mut stereo[read..needed_samples] {
+                    *s = 0.0;
+                }
+                underruns.fetch_add(needed_samples - read, Ordering::Relaxed);
             }
+            dsp.process_interleaved_stereo(&mut stereo[..needed_samples]);
+            for i in 0..frames {
+                data[offset + i] = (stereo[i * 2] + stereo[i * 2 + 1]) * 0.5;
+            }
+            offset += frames;
         }
     } else {
-        // e.g. 4, 6 (5.1), 8 (7.1) channels
-        // Map L to channel 0, R to channel 1, and zero remaining surround/LFE channels
-        let mut frame_stereo = [0.0f32; 2];
-        for chunk in data.chunks_mut(channels) {
-            let read = consumer.pop_slice(&mut frame_stereo);
-            if read == 2 {
-                chunk[0] = frame_stereo[0];
-                chunk[1] = frame_stereo[1];
-            } else if read == 1 {
-                chunk[0] = frame_stereo[0];
-                if chunk.len() > 1 {
-                    chunk[1] = 0.0;
+        // Multi-channel: e.g. 4 (2.1 or quad), 6 (5.1), 8 (7.1) channels
+        let total_frames = data.len() / channels;
+        let mut frame_offset = 0;
+        let mut stereo = [0.0f32; 128];
+
+        while frame_offset < total_frames {
+            let frames = (total_frames - frame_offset).min(64);
+            let needed_samples = frames * 2;
+            let read = consumer.pop_slice(&mut stereo[..needed_samples]);
+            if read < needed_samples {
+                for s in &mut stereo[read..needed_samples] {
+                    *s = 0.0;
                 }
-                underruns.fetch_add(1, Ordering::Relaxed);
-            } else {
-                chunk[0] = 0.0;
-                if chunk.len() > 1 {
-                    chunk[1] = 0.0;
+                underruns.fetch_add(needed_samples - read, Ordering::Relaxed);
+            }
+
+            dsp.process_interleaved_stereo(&mut stereo[..needed_samples]);
+
+            for i in 0..frames {
+                let l = stereo[i * 2];
+                let r = stereo[i * 2 + 1];
+                let sub_center = (l + r) * 0.5;
+                let chunk_start = (frame_offset + i) * channels;
+                let chunk = &mut data[chunk_start..chunk_start + channels];
+
+                chunk[0] = l;
+                chunk[1] = r;
+
+                if channels >= 3 {
+                    chunk[2] = sub_center;
                 }
-                underruns.fetch_add(2, Ordering::Relaxed);
+                if channels >= 4 {
+                    chunk[3] = sub_center;
+                }
+                if channels >= 5 {
+                    chunk[4] = l;
+                }
+                if channels >= 6 {
+                    chunk[5] = r;
+                }
+                for ch in chunk.iter_mut().skip(6) {
+                    *ch = 0.0;
+                }
             }
-            for ch in chunk.iter_mut().skip(2) {
-                *ch = 0.0;
+            frame_offset += frames;
+        }
+    }
+}
+
+/// Renders multi-channel or mono i16 output slices from an interleaved stereo consumer.
+#[inline]
+fn render_multichannel_i16(
+    consumer: &mut AudioConsumer,
+    dsp: &mut DspProcessor,
+    data: &mut [i16],
+    channels: usize,
+    underruns: &AtomicUsize,
+) {
+    if channels == 1 {
+        let mut stereo = [0.0f32; 128];
+        let mut offset = 0;
+        while offset < data.len() {
+            let frames = (data.len() - offset).min(64);
+            let needed = frames * 2;
+            let read = consumer.pop_slice(&mut stereo[..needed]);
+            if read < needed {
+                for s in &mut stereo[read..needed] {
+                    *s = 0.0;
+                }
+                underruns.fetch_add(needed - read, Ordering::Relaxed);
             }
+            dsp.process_interleaved_stereo(&mut stereo[..needed]);
+            for i in 0..frames {
+                let m = (stereo[i * 2] + stereo[i * 2 + 1]) * 0.5;
+                data[offset + i] = (m * 32767.0).clamp(-32768.0, 32767.0) as i16;
+            }
+            offset += frames;
+        }
+    } else {
+        let total_frames = data.len() / channels;
+        let mut frame_offset = 0;
+        let mut stereo = [0.0f32; 128];
+        while frame_offset < total_frames {
+            let frames = (total_frames - frame_offset).min(64);
+            let needed = frames * 2;
+            let read = consumer.pop_slice(&mut stereo[..needed]);
+            if read < needed {
+                for s in &mut stereo[read..needed] {
+                    *s = 0.0;
+                }
+                underruns.fetch_add(needed - read, Ordering::Relaxed);
+            }
+            dsp.process_interleaved_stereo(&mut stereo[..needed]);
+            for i in 0..frames {
+                let l = stereo[i * 2];
+                let r = stereo[i * 2 + 1];
+                let sub_center = (l + r) * 0.5;
+                let chunk_start = (frame_offset + i) * channels;
+                let chunk = &mut data[chunk_start..chunk_start + channels];
+
+                chunk[0] = (l * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                chunk[1] = (r * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                let sub_i16 = (sub_center * 32767.0).clamp(-32768.0, 32767.0) as i16;
+
+                if channels >= 3 {
+                    chunk[2] = sub_i16;
+                }
+                if channels >= 4 {
+                    chunk[3] = sub_i16;
+                }
+                if channels >= 5 {
+                    chunk[4] = chunk[0];
+                }
+                if channels >= 6 {
+                    chunk[5] = chunk[1];
+                }
+                for ch in chunk.iter_mut().skip(6) {
+                    *ch = 0;
+                }
+            }
+            frame_offset += frames;
+        }
+    }
+}
+
+/// Renders multi-channel or mono u16 output slices from an interleaved stereo consumer.
+#[inline]
+fn render_multichannel_u16(
+    consumer: &mut AudioConsumer,
+    dsp: &mut DspProcessor,
+    data: &mut [u16],
+    channels: usize,
+    underruns: &AtomicUsize,
+) {
+    if channels == 1 {
+        let mut stereo = [0.0f32; 128];
+        let mut offset = 0;
+        while offset < data.len() {
+            let frames = (data.len() - offset).min(64);
+            let needed = frames * 2;
+            let read = consumer.pop_slice(&mut stereo[..needed]);
+            if read < needed {
+                for s in &mut stereo[read..needed] {
+                    *s = 0.0;
+                }
+                underruns.fetch_add(needed - read, Ordering::Relaxed);
+            }
+            dsp.process_interleaved_stereo(&mut stereo[..needed]);
+            for i in 0..frames {
+                let m = (stereo[i * 2] + stereo[i * 2 + 1]) * 0.5;
+                data[offset + i] = ((m * 32767.0) + 32768.0).clamp(0.0, 65535.0) as u16;
+            }
+            offset += frames;
+        }
+    } else {
+        let total_frames = data.len() / channels;
+        let mut frame_offset = 0;
+        let mut stereo = [0.0f32; 128];
+        while frame_offset < total_frames {
+            let frames = (total_frames - frame_offset).min(64);
+            let needed = frames * 2;
+            let read = consumer.pop_slice(&mut stereo[..needed]);
+            if read < needed {
+                for s in &mut stereo[read..needed] {
+                    *s = 0.0;
+                }
+                underruns.fetch_add(needed - read, Ordering::Relaxed);
+            }
+            dsp.process_interleaved_stereo(&mut stereo[..needed]);
+            for i in 0..frames {
+                let l = stereo[i * 2];
+                let r = stereo[i * 2 + 1];
+                let sub_center = (l + r) * 0.5;
+                let chunk_start = (frame_offset + i) * channels;
+                let chunk = &mut data[chunk_start..chunk_start + channels];
+
+                chunk[0] = ((l * 32767.0) + 32768.0).clamp(0.0, 65535.0) as u16;
+                chunk[1] = ((r * 32767.0) + 32768.0).clamp(0.0, 65535.0) as u16;
+                let sub_u16 = ((sub_center * 32767.0) + 32768.0).clamp(0.0, 65535.0) as u16;
+
+                if channels >= 3 {
+                    chunk[2] = sub_u16;
+                }
+                if channels >= 4 {
+                    chunk[3] = sub_u16;
+                }
+                if channels >= 5 {
+                    chunk[4] = chunk[0];
+                }
+                if channels >= 6 {
+                    chunk[5] = chunk[1];
+                }
+                for ch in chunk.iter_mut().skip(6) {
+                    *ch = 32768;
+                }
+            }
+            frame_offset += frames;
         }
     }
 }
@@ -156,6 +336,7 @@ impl WasapiRender {
                             } else {
                                 render_multichannel_f32(
                                     &mut consumer,
+                                    &mut dsp,
                                     data,
                                     ch_usize,
                                     &underruns_clone,
@@ -169,6 +350,7 @@ impl WasapiRender {
             }
             SampleFormat::I16 => {
                 let mut consumer = consumer;
+                let ch_usize = channels as usize;
                 let mut dsp = DspProcessor::new(sample_rate, param_receiver, telemetry_clone);
                 device
                     .build_output_stream(
@@ -186,25 +368,35 @@ impl WasapiRender {
                                 }
                             }
 
-                            let mut offset = 0;
-                            let mut stack_buf = [0.0f32; 128];
-                            while offset < data.len() {
-                                let chunk_len = (data.len() - offset).min(128);
-                                let read = consumer.pop_slice(&mut stack_buf[..chunk_len]);
-                                if read < chunk_len {
-                                    for s in &mut stack_buf[read..chunk_len] {
-                                        *s = 0.0;
+                            if ch_usize == 2 {
+                                let mut offset = 0;
+                                let mut stack_buf = [0.0f32; 128];
+                                while offset < data.len() {
+                                    let chunk_len = (data.len() - offset).min(128);
+                                    let read = consumer.pop_slice(&mut stack_buf[..chunk_len]);
+                                    if read < chunk_len {
+                                        for s in &mut stack_buf[read..chunk_len] {
+                                            *s = 0.0;
+                                        }
+                                        underruns_clone
+                                            .fetch_add(chunk_len - read, Ordering::Relaxed);
                                     }
-                                    underruns_clone
-                                        .fetch_add(chunk_len - read, Ordering::Relaxed);
+                                    dsp.process_interleaved_stereo(&mut stack_buf[..chunk_len]);
+                                    for i in 0..chunk_len {
+                                        let s = stack_buf[i];
+                                        let scaled = (s * 32767.0).clamp(-32768.0, 32767.0);
+                                        data[offset + i] = scaled as i16;
+                                    }
+                                    offset += chunk_len;
                                 }
-                                dsp.process_interleaved_stereo(&mut stack_buf[..chunk_len]);
-                                for i in 0..chunk_len {
-                                    let s = stack_buf[i];
-                                    let scaled = (s * 32767.0).clamp(-32768.0, 32767.0);
-                                    data[offset + i] = scaled as i16;
-                                }
-                                offset += chunk_len;
+                            } else {
+                                render_multichannel_i16(
+                                    &mut consumer,
+                                    &mut dsp,
+                                    data,
+                                    ch_usize,
+                                    &underruns_clone,
+                                );
                             }
                         },
                         err_fn,
@@ -214,6 +406,7 @@ impl WasapiRender {
             }
             SampleFormat::U16 => {
                 let mut consumer = consumer;
+                let ch_usize = channels as usize;
                 let mut dsp = DspProcessor::new(sample_rate, param_receiver, telemetry_clone);
                 device
                     .build_output_stream(
@@ -231,25 +424,35 @@ impl WasapiRender {
                                 }
                             }
 
-                            let mut offset = 0;
-                            let mut stack_buf = [0.0f32; 128];
-                            while offset < data.len() {
-                                let chunk_len = (data.len() - offset).min(128);
-                                let read = consumer.pop_slice(&mut stack_buf[..chunk_len]);
-                                if read < chunk_len {
-                                    for s in &mut stack_buf[read..chunk_len] {
-                                        *s = 0.0;
+                            if ch_usize == 2 {
+                                let mut offset = 0;
+                                let mut stack_buf = [0.0f32; 128];
+                                while offset < data.len() {
+                                    let chunk_len = (data.len() - offset).min(128);
+                                    let read = consumer.pop_slice(&mut stack_buf[..chunk_len]);
+                                    if read < chunk_len {
+                                        for s in &mut stack_buf[read..chunk_len] {
+                                            *s = 0.0;
+                                        }
+                                        underruns_clone
+                                            .fetch_add(chunk_len - read, Ordering::Relaxed);
                                     }
-                                    underruns_clone
-                                        .fetch_add(chunk_len - read, Ordering::Relaxed);
+                                    dsp.process_interleaved_stereo(&mut stack_buf[..chunk_len]);
+                                    for i in 0..chunk_len {
+                                        let s = stack_buf[i];
+                                        let scaled = ((s * 32767.0) + 32768.0).clamp(0.0, 65535.0);
+                                        data[offset + i] = scaled as u16;
+                                    }
+                                    offset += chunk_len;
                                 }
-                                dsp.process_interleaved_stereo(&mut stack_buf[..chunk_len]);
-                                for i in 0..chunk_len {
-                                    let s = stack_buf[i];
-                                    let scaled = ((s * 32767.0) + 32768.0).clamp(0.0, 65535.0);
-                                    data[offset + i] = scaled as u16;
-                                }
-                                offset += chunk_len;
+                            } else {
+                                render_multichannel_u16(
+                                    &mut consumer,
+                                    &mut dsp,
+                                    data,
+                                    ch_usize,
+                                    &underruns_clone,
+                                );
                             }
                         },
                         err_fn,
@@ -404,4 +607,67 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_render_multichannel_f32_processing_and_command_draining() {
+        let (mut producer, mut consumer) = AudioRingBuffer::new(256);
+        let (sender, receiver) = create_param_channel(16);
+        let telemetry = Arc::new(AudioTelemetry::new());
+        let mut dsp = DspProcessor::new(48000, receiver, telemetry);
+        let underruns = AtomicUsize::new(0);
+
+        // Push 4 stereo frames (8 samples)
+        let stereo_samples = [0.2f32, 0.4f32, 0.1f32, -0.3f32, 0.5f32, 0.5f32, -0.2f32, 0.2f32];
+        producer.push_slice(&stereo_samples);
+
+        // Send a parameter command to verify draining
+        assert!(sender.set_bypass(true).is_ok());
+
+        // Render buffer for 4 frames of 4 channels (16 samples) - typical 2.1 laptop subwoofer configuration
+        let mut out_data = [0.0f32; 16];
+        render_multichannel_f32(&mut consumer, &mut dsp, &mut out_data, 4, &underruns);
+
+        // Verify that dsp drained commands
+        assert!(dsp.is_bypassed());
+
+        // Verify channel 0 (Left), channel 1 (Right), and channel 2/3 (Sub/Center mono mix)
+        // Frame 0: L=0.2, R=0.4 => sub_center = 0.3
+        assert!((out_data[0] - 0.2).abs() < 1e-4);
+        assert!((out_data[1] - 0.4).abs() < 1e-4);
+        assert!((out_data[2] - 0.3).abs() < 1e-4);
+        assert!((out_data[3] - 0.3).abs() < 1e-4); // Subwoofer received 0.3!
+
+        // Frame 1: L=0.1, R=-0.3 => sub_center = -0.1
+        assert!((out_data[4] - 0.1).abs() < 1e-4);
+        assert!((out_data[5] - (-0.3)).abs() < 1e-4);
+        assert!((out_data[6] - (-0.1)).abs() < 1e-4);
+        assert!((out_data[7] - (-0.1)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_render_multichannel_5_1_subwoofer_distribution() {
+        let (mut producer, mut consumer) = AudioRingBuffer::new(256);
+        let (sender, receiver) = create_param_channel(16);
+        let telemetry = Arc::new(AudioTelemetry::new());
+        let mut dsp = DspProcessor::new(48000, receiver, telemetry);
+        let underruns = AtomicUsize::new(0);
+
+        // Push 2 stereo frames (4 samples): Frame 0: [0.6, 0.4], Frame 1: [0.8, -0.2]
+        producer.push_slice(&[0.6f32, 0.4f32, 0.8f32, -0.2f32]);
+        // Set bypass so values are exact pass-through
+        assert!(sender.set_bypass(true).is_ok());
+
+        // Render buffer for 2 frames of 6 channels (12 samples)
+        let mut out_5_1 = [0.0f32; 12];
+        render_multichannel_f32(&mut consumer, &mut dsp, &mut out_5_1, 6, &underruns);
+
+        // Frame 0: Ch0=0.6 (FL), Ch1=0.4 (FR), Ch2=0.5 (FC), Ch3=0.5 (LFE Sub), Ch4=0.6 (BL), Ch5=0.4 (BR)
+        assert!((out_5_1[0] - 0.6).abs() < 1e-4);
+        assert!((out_5_1[1] - 0.4).abs() < 1e-4);
+        assert!((out_5_1[2] - 0.5).abs() < 1e-4);
+        assert!((out_5_1[3] - 0.5).abs() < 1e-4); // LFE Subwoofer
+        assert!((out_5_1[4] - 0.6).abs() < 1e-4);
+        assert!((out_5_1[5] - 0.4).abs() < 1e-4);
+    }
 }
+

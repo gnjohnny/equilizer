@@ -62,12 +62,40 @@ impl WasapiCapture {
             // Real-time audio error callback: zero-allocation, no panics
         };
 
+        let ch = channels as usize;
+
         let stream = match sample_format {
             SampleFormat::F32 => device
                 .build_input_stream(
                     &config,
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                        producer.push_slice_with_denormal_flush(data);
+                        if ch == 2 {
+                            producer.push_slice_with_denormal_flush(data);
+                        } else if ch == 1 {
+                            let mut stack_stereo = [0.0f32; 128];
+                            for chunk in data.chunks(64) {
+                                for (i, &s) in chunk.iter().enumerate() {
+                                    stack_stereo[i * 2] = s;
+                                    stack_stereo[i * 2 + 1] = s;
+                                }
+                                producer.push_slice_with_denormal_flush(&stack_stereo[..chunk.len() * 2]);
+                            }
+                        } else {
+                            let mut stack_stereo = [0.0f32; 128];
+                            let mut offset = 0;
+                            for frame in data.chunks_exact(ch) {
+                                stack_stereo[offset] = frame[0];
+                                stack_stereo[offset + 1] = frame[1];
+                                offset += 2;
+                                if offset >= 128 {
+                                    producer.push_slice_with_denormal_flush(&stack_stereo[..offset]);
+                                    offset = 0;
+                                }
+                            }
+                            if offset > 0 {
+                                producer.push_slice_with_denormal_flush(&stack_stereo[..offset]);
+                            }
+                        }
                     },
                     err_fn,
                     None,
@@ -77,7 +105,33 @@ impl WasapiCapture {
                 .build_input_stream(
                     &config,
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                        producer.push_i16_slice(data);
+                        if ch == 2 {
+                            producer.push_i16_slice(data);
+                        } else if ch == 1 {
+                            let mut stack_stereo = [0i16; 128];
+                            for chunk in data.chunks(64) {
+                                for (i, &s) in chunk.iter().enumerate() {
+                                    stack_stereo[i * 2] = s;
+                                    stack_stereo[i * 2 + 1] = s;
+                                }
+                                producer.push_i16_slice(&stack_stereo[..chunk.len() * 2]);
+                            }
+                        } else {
+                            let mut stack_stereo = [0i16; 128];
+                            let mut offset = 0;
+                            for frame in data.chunks_exact(ch) {
+                                stack_stereo[offset] = frame[0];
+                                stack_stereo[offset + 1] = frame[1];
+                                offset += 2;
+                                if offset >= 128 {
+                                    producer.push_i16_slice(&stack_stereo[..offset]);
+                                    offset = 0;
+                                }
+                            }
+                            if offset > 0 {
+                                producer.push_i16_slice(&stack_stereo[..offset]);
+                            }
+                        }
                     },
                     err_fn,
                     None,
@@ -87,7 +141,33 @@ impl WasapiCapture {
                 .build_input_stream(
                     &config,
                     move |data: &[u16], _: &cpal::InputCallbackInfo| {
-                        producer.push_u16_slice(data);
+                        if ch == 2 {
+                            producer.push_u16_slice(data);
+                        } else if ch == 1 {
+                            let mut stack_stereo = [0u16; 128];
+                            for chunk in data.chunks(64) {
+                                for (i, &s) in chunk.iter().enumerate() {
+                                    stack_stereo[i * 2] = s;
+                                    stack_stereo[i * 2 + 1] = s;
+                                }
+                                producer.push_u16_slice(&stack_stereo[..chunk.len() * 2]);
+                            }
+                        } else {
+                            let mut stack_stereo = [0u16; 128];
+                            let mut offset = 0;
+                            for frame in data.chunks_exact(ch) {
+                                stack_stereo[offset] = frame[0];
+                                stack_stereo[offset + 1] = frame[1];
+                                offset += 2;
+                                if offset >= 128 {
+                                    producer.push_u16_slice(&stack_stereo[..offset]);
+                                    offset = 0;
+                                }
+                            }
+                            if offset > 0 {
+                                producer.push_u16_slice(&stack_stereo[..offset]);
+                            }
+                        }
                     },
                     err_fn,
                     None,
