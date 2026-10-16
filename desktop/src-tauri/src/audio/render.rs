@@ -311,9 +311,12 @@ impl WasapiRender {
                     .build_output_stream(
                         &config,
                         move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                            let needed_stereo_samples = (data.len() / ch_usize) * 2;
+                            let min_required = prebuffer_threshold.max(needed_stereo_samples * 2);
+
                             let is_prebuffered = prebuffered_clone.load(Ordering::Relaxed);
                             if !is_prebuffered {
-                                if consumer.len() >= prebuffer_threshold {
+                                if consumer.len() >= min_required {
                                     prebuffered_clone.store(true, Ordering::Relaxed);
                                 } else {
                                     for sample in data.iter_mut() {
@@ -362,9 +365,12 @@ impl WasapiRender {
                     .build_output_stream(
                         &config,
                         move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
+                            let needed_stereo_samples = (data.len() / ch_usize) * 2;
+                            let min_required = prebuffer_threshold.max(needed_stereo_samples * 2);
+
                             let is_prebuffered = prebuffered_clone.load(Ordering::Relaxed);
                             if !is_prebuffered {
-                                if consumer.len() >= prebuffer_threshold {
+                                if consumer.len() >= min_required {
                                     prebuffered_clone.store(true, Ordering::Relaxed);
                                 } else {
                                     for sample in data.iter_mut() {
@@ -424,9 +430,12 @@ impl WasapiRender {
                     .build_output_stream(
                         &config,
                         move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
+                            let needed_stereo_samples = (data.len() / ch_usize) * 2;
+                            let min_required = prebuffer_threshold.max(needed_stereo_samples * 2);
+
                             let is_prebuffered = prebuffered_clone.load(Ordering::Relaxed);
                             if !is_prebuffered {
-                                if consumer.len() >= prebuffer_threshold {
+                                if consumer.len() >= min_required {
                                     prebuffered_clone.store(true, Ordering::Relaxed);
                                 } else {
                                     for sample in data.iter_mut() {
@@ -600,9 +609,9 @@ mod tests {
             return;
         }
 
-        let (mut producer, consumer) = AudioRingBuffer::new(4096);
-        // Pre-fill some samples so prebuffering threshold (384) is satisfied
-        let dummy = vec![0.05f32; 2048];
+        let (mut producer, consumer) = AudioRingBuffer::new(16384);
+        // Pre-fill samples so dynamic hardware prebuffering threshold (>= 4224) is satisfied
+        let dummy = vec![0.05f32; 8192];
         producer.push_slice(&dummy);
 
         let render_result = WasapiRender::from_default_device(consumer);
