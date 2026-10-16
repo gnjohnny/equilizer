@@ -28,6 +28,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::devices::get_audio_devices,
             commands::devices::set_output_device,
+            commands::devices::start_audio_pipeline,
+            commands::devices::pause_audio_pipeline,
             commands::dsp::update_eq_bands,
             commands::dsp::update_bass_boost,
             commands::dsp::set_preamp_gain,

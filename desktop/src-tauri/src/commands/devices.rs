@@ -19,6 +19,18 @@ pub fn set_output_device(
     state.set_output_device(device_id)
 }
 
+/// Starts audio playback and loopback capture streaming on the active pipeline.
+#[tauri::command]
+pub fn start_audio_pipeline(state: State<'_, AppState>) -> Result<(), String> {
+    state.start_pipeline().map_err(|e| e.to_string())
+}
+
+/// Pauses audio playback and loopback capture streaming on the active pipeline.
+#[tauri::command]
+pub fn pause_audio_pipeline(state: State<'_, AppState>) -> Result<(), String> {
+    state.pause_pipeline().map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,6 +78,26 @@ mod tests {
         // Verify invalid device name returns error without crashing
         let invalid_res = app_state.set_output_device(Some("NonExistentAudioDeviceXYZ123".to_string()));
         assert!(invalid_res.is_err());
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn test_pipeline_streaming_control() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "equilizer_test_streaming_ctrl_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let storage = StorageManager::new(&temp_dir);
+        let app_state = AppState::new(storage);
+
+        // start and pause calls should handle state cleanly
+        let _ = app_state.start_pipeline();
+        let pause_res = app_state.pause_pipeline();
+        assert!(pause_res.is_ok());
 
         let _ = std::fs::remove_dir_all(temp_dir);
     }

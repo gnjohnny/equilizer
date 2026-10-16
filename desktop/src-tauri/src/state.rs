@@ -25,6 +25,9 @@ impl AppState {
 
         if let Some(ref p) = pipeline {
             Self::sync_pipeline_parameters(p, &storage, &settings);
+            if let Err(e) = p.start() {
+                eprintln!("Warning: Failed to auto-start audio pipeline on launch: {}", e);
+            }
         }
 
         Self {
