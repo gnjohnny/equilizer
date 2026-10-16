@@ -5,99 +5,64 @@ import { BandInspector } from "../inspector/BandInspector";
 import { BottomDeck } from "../deck/BottomDeck";
 import { SavePresetModal } from "../modals/SavePresetModal";
 import { DeleteConfirmModal } from "../modals/DeleteConfirmModal";
-import {
-  FACTORY_PRESETS,
-  MOCK_AUDIO_DEVICES,
-  EqualizerPreset,
-  EqBand,
-  BassBoostConfig,
-} from "../../types/audio";
+import { EqualizerPreset } from "../../types/audio";
+import { useAudioDevices, usePresets, useEqState } from "../../hooks";
 
 export const WorkstationShell: React.FC = () => {
-  const [isBypassed, setIsBypassed] = useState<boolean>(false);
+  const { devices, selectedDeviceId, selectDevice } = useAudioDevices();
+
+  const {
+    presets,
+    activePresetId,
+    activePreset,
+    selectPreset,
+    savePreset,
+    deletePreset,
+  } = usePresets();
+
+  const {
+    bands,
+    bassBoost,
+    preampGainDb,
+    isBypassed,
+    updateBand,
+    updateBassBoost,
+    updatePreamp,
+    toggleBypass,
+  } = useEqState({ activePreset });
+
   const [limiterEnabled, setLimiterEnabled] = useState<boolean>(true);
-  const [selectedPresetId, setSelectedPresetId] = useState<string>("flat");
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("default");
   const [selectedBandId, setSelectedBandId] = useState<number>(4);
-  const [presets, setPresets] = useState<EqualizerPreset[]>(FACTORY_PRESETS);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState<boolean>(false);
   const [presetToDelete, setPresetToDelete] = useState<EqualizerPreset | null>(null);
 
-  const activePreset = presets.find((p) => p.id === selectedPresetId) ?? presets[0];
-
-  const handleUpdateBand = (updatedBand: EqBand) => {
-    setPresets((prevPresets) =>
-      prevPresets.map((preset) => {
-        if (preset.id !== selectedPresetId) return preset;
-        return {
-          ...preset,
-          bands: preset.bands.map((b) => (b.id === updatedBand.id ? updatedBand : b)),
-        };
-      })
-    );
+  // Snapshot combining preset metadata with current live curve edits for save modal
+  const livePresetSnapshot: EqualizerPreset = {
+    ...activePreset,
+    preampGainDb,
+    bassBoost,
+    bands,
   };
 
-  const handleUpdateBassBoost = (newBassBoost: BassBoostConfig) => {
-    setPresets((prevPresets) =>
-      prevPresets.map((preset) => {
-        if (preset.id !== selectedPresetId) return preset;
-        return {
-          ...preset,
-          bassBoost: newBassBoost,
-        };
-      })
-    );
-  };
-
-  const handleUpdatePreamp = (newPreampGainDb: number) => {
-    setPresets((prevPresets) =>
-      prevPresets.map((preset) => {
-        if (preset.id !== selectedPresetId) return preset;
-        return {
-          ...preset,
-          preampGainDb: newPreampGainDb,
-        };
-      })
-    );
-  };
-
-  const handleSavePreset = (name: string, overwriteId?: string) => {
-    if (overwriteId) {
-      setPresets((prev) =>
-        prev.map((p) => {
-          if (p.id !== overwriteId) return p;
-          return {
-            ...p,
-            name,
-            preampGainDb: activePreset.preampGainDb,
-            bassBoost: { ...activePreset.bassBoost },
-            bands: activePreset.bands.map((b) => ({ ...b })),
-            updatedAt: new Date().toISOString(),
-          };
-        })
-      );
-      setSelectedPresetId(overwriteId);
-    } else {
-      const newId = `user-${Date.now()}`;
-      const newPreset: EqualizerPreset = {
-        id: newId,
-        name,
-        isFactory: false,
-        preampGainDb: activePreset.preampGainDb,
-        bassBoost: { ...activePreset.bassBoost },
-        bands: activePreset.bands.map((b) => ({ ...b })),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      setPresets((prev) => [...prev, newPreset]);
-      setSelectedPresetId(newId);
+  const handleSavePreset = async (name: string, overwriteId?: string) => {
+    try {
+      await savePreset(name, overwriteId, {
+        preampGainDb,
+        bassBoost,
+        bands,
+      });
+      setIsSaveModalOpen(false);
+    } catch (err) {
+      console.error("Failed to save preset:", err);
     }
   };
 
-  const handleDeletePreset = (presetId: string) => {
-    setPresets((prev) => prev.filter((p) => p.id !== presetId));
-    if (selectedPresetId === presetId) {
-      setSelectedPresetId("flat");
+  const handleDeletePreset = async (presetId: string) => {
+    try {
+      await deletePreset(presetId);
+      setPresetToDelete(null);
+    } catch (err) {
+      console.error("Failed to delete preset:", err);
     }
   };
 
@@ -112,13 +77,13 @@ export const WorkstationShell: React.FC = () => {
           ========================================================================= */}
       <HeaderBar
         isBypassed={isBypassed}
-        onToggleBypass={() => setIsBypassed((prev) => !prev)}
+        onToggleBypass={() => toggleBypass()}
         presets={presets}
-        selectedPresetId={selectedPresetId}
-        onSelectPreset={(presetId) => setSelectedPresetId(presetId)}
-        devices={MOCK_AUDIO_DEVICES}
+        selectedPresetId={activePresetId}
+        onSelectPreset={(presetId) => void selectPreset(presetId)}
+        devices={devices}
         selectedDeviceId={selectedDeviceId}
-        onSelectDevice={(deviceId) => setSelectedDeviceId(deviceId)}
+        onSelectDevice={(deviceId) => void selectDevice(deviceId)}
         onSavePreset={() => setIsSaveModalOpen(true)}
         onNewPreset={() => setIsSaveModalOpen(true)}
         onDeletePreset={(preset) => setPresetToDelete(preset)}
@@ -129,12 +94,12 @@ export const WorkstationShell: React.FC = () => {
           ========================================================================= */}
       <section className="flex-1 min-h-80 relative overflow-hidden bg-surface-base p-3 flex flex-col">
         <ParametricCanvas
-          bands={activePreset.bands}
+          bands={bands}
           selectedBandId={selectedBandId}
           onSelectBand={(bandId) => setSelectedBandId(bandId)}
-          onUpdateBand={handleUpdateBand}
-          preampGainDb={activePreset.preampGainDb}
-          bassBoost={activePreset.bassBoost}
+          onUpdateBand={updateBand}
+          preampGainDb={preampGainDb}
+          bassBoost={bassBoost}
           isBypassed={isBypassed}
         />
       </section>
@@ -143,10 +108,10 @@ export const WorkstationShell: React.FC = () => {
           TIER 3: BAND INSPECTOR STRIP (h-20 / 80px Fixed)
           ========================================================================= */}
       <BandInspector
-        bands={activePreset.bands}
+        bands={bands}
         selectedBandId={selectedBandId}
         onSelectBand={(bandId) => setSelectedBandId(bandId)}
-        onUpdateBand={handleUpdateBand}
+        onUpdateBand={updateBand}
         isBypassed={isBypassed}
       />
 
@@ -154,10 +119,10 @@ export const WorkstationShell: React.FC = () => {
           TIER 4: BOTTOM CONTROL DECK (h-44 / 176px Fixed)
           ========================================================================= */}
       <BottomDeck
-        bassBoost={activePreset.bassBoost}
-        onUpdateBassBoost={handleUpdateBassBoost}
-        preampGainDb={activePreset.preampGainDb}
-        onUpdatePreamp={handleUpdatePreamp}
+        bassBoost={bassBoost}
+        onUpdateBassBoost={updateBassBoost}
+        preampGainDb={preampGainDb}
+        onUpdatePreamp={updatePreamp}
         limiterEnabled={limiterEnabled}
         onToggleLimiter={handleToggleLimiter}
         isBypassed={isBypassed}
@@ -169,7 +134,7 @@ export const WorkstationShell: React.FC = () => {
       {isSaveModalOpen && (
         <SavePresetModal
           isOpen={isSaveModalOpen}
-          currentPreset={activePreset}
+          currentPreset={livePresetSnapshot}
           existingPresets={presets}
           onClose={() => setIsSaveModalOpen(false)}
           onSave={handleSavePreset}
