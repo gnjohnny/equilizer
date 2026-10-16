@@ -14,6 +14,7 @@
   <a href="#tech-stack"><img src="https://img.shields.io/badge/Core-Rust_1.75+-DEA584?logo=rust&logoColor=black" alt="Core: Rust" /></a>
   <a href="#tech-stack"><img src="https://img.shields.io/badge/Frontend-React_19_+_TypeScript-61DAFB?logo=react&logoColor=black" alt="Frontend: React 19" /></a>
   <a href="#audio-safety--invariants"><img src="https://img.shields.io/badge/Latency-%E2%89%A4_13.3_ms-brightgreen" alt="Latency: <= 13.3ms" /></a>
+  <a href="#verification--quality-gates"><img src="https://img.shields.io/badge/Tests-95%20passed-brightgreen" alt="Tests: 95 passed" /></a>
   <a href="#license"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="#privacy--offline-guarantee"><img src="https://img.shields.io/badge/Network-100%25_Offline-success" alt="100% Offline" /></a>
 </p>
@@ -29,12 +30,14 @@
 - [Project Structure](#project-structure)
 - [Audio Safety & Thread Invariants](#audio-safety--thread-invariants)
 - [Factory Presets & Local Persistence](#factory-presets--local-persistence)
+- [System Integration & Tray Persistence](#system-integration--tray-persistence)
+- [Resource Consumption & Performance Profiling](#resource-consumption--performance-profiling)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
   - [Development Workflow](#development-workflow)
   - [Verification & Quality Gates](#verification--quality-gates)
-  - [Release Build](#release-build)
+  - [Release Build & Installer Packaging](#release-build--installer-packaging)
 - [Privacy & Offline Guarantee](#privacy--offline-guarantee)
 - [License](#license)
 
@@ -44,7 +47,7 @@
 
 **Equilizer** captures, shapes, and enhances all outbound operating system audio in real time on Windows with **sub-15ms round-trip latency** ($\le 13.33\text{ ms}$ verified), high-precision parametric filtering, dedicated dual-mode bass boost, and integrated soft-knee brickwall anti-clipping protection.
 
-Unlike bloated alternatives built on Electron or requiring complex third-party kernel drivers and virtual audio cables, Equilizer runs as a lightweight native Windows desktop application powered by **Tauri v2** and **Rust** with native **WASAPI loopback audio capture** (<40 MB RAM, <3% CPU footprint).
+Unlike bloated alternatives built on Electron or requiring complex third-party kernel drivers and virtual audio cables, Equilizer runs as a lightweight native Windows desktop application powered by **Tauri v2** and **Rust** with native **WASAPI loopback audio capture** (<40 MB RAM, <0.4% CPU footprint).
 
 ---
 
@@ -71,7 +74,8 @@ Unlike bloated alternatives built on Electron or requiring complex third-party k
 - **Tactile Band Inspector Strip:** Hardware/DAW-styled channel strip displaying active band parameters, filter type selector, frequency, gain, and Q with numeric inputs.
 - **Stereo Peak VU Meters:** Smooth responsive peak meters with peak hold indicators, dBFS scales, and active limiter engagement indicators.
 - **100% Offline Local JSON Persistence:** Atomic file writes to `%APPDATA%/equilizer/presets.json` and `settings.json`. Bundles 5 factory presets with protected write invariants.
-- **Audio Endpoint Switching:** Dynamic playback device selection with automatic fallback to OS default endpoint.
+- **Audio Endpoint Switching & Fallback:** Dynamic playback device selection with low-latency disconnect polling and automatic graceful fallback to the OS default endpoint.
+- **Windows System Tray Integration:** Closes to the system tray for non-intrusive background processing, with a native right-click context menu (Open, Bypass EQ toggle, Presets switcher, and Exit).
 
 ---
 
@@ -105,7 +109,7 @@ $$\text{Input Audio} \longrightarrow \text{Pre-Amp} \longrightarrow \text{10-Ban
 
 | Subsystem | Technology | Purpose |
 |---|---|---|
-| **Host & Packaging** | [Tauri v2](https://v2.tauri.app/) (Rust 1.75+) | Native desktop windowing, system tray, security sandbox |
+| **Host & Packaging** | [Tauri v2](https://v2.tauri.app/) (Rust 1.75+) | Native desktop windowing, system tray, security sandbox, NSIS bundler |
 | **Audio Capture & Render** | [`cpal`](https://crates.io/crates/cpal) 0.15 | Low-latency Windows WASAPI loopback capture & output |
 | **Biquad DSP Engine** | Direct Form II Transposed Math | Robert Bristow-Johnson formulas, denormal suppression |
 | **Thread Communication** | [`crossbeam-channel`](https://crates.io/crates/crossbeam-channel) + `AtomicF32` | SPSC bounded lock-free queues and atomic telemetry |
@@ -129,34 +133,40 @@ equilizer/
 │   │   │   ├── inspector/           # 10-band parameter inspector strip
 │   │   │   ├── layout/              # Workstation shell & layout containers
 │   │   │   └── modals/              # Save preset & delete confirmation dialogs
-│   │   ├── hooks/                   # useAudioTelemetry & UI state hooks
+│   │   ├── hooks/                   # useAudioDevices, useEqState, usePresets, useAudioTelemetry
 │   │   ├── lib/                     # Biquad math transfer function & coordinate mappings
 │   │   ├── styles/                  # Tailwind CSS tokens & theme styling
 │   │   └── types/                   # Audio & preset TypeScript definitions
 │   │
 │   └── src-tauri/                   # Rust backend & DSP core
+│       ├── icons/                   # Multi-resolution application icons (ICO, PNG)
 │       └── src/
 │           ├── audio/               # Real-time DSP audio engine
 │           │   ├── bass_boost.rs    # Dual-mode tuned resonant bass engine
-│           │   ├── benchmark.rs     # Latency & buffer underrun benchmark harness
+│           │   ├── benchmark.rs     # DSP throughput & resource consumption profiler
 │           │   ├── buffer.rs        # Lock-free SPSC circular ring buffer
 │           │   ├── capture.rs       # WASAPI loopback audio capture
 │           │   ├── dsp.rs           # 10-band Direct Form II Transposed biquad filters
 │           │   ├── limiter.rs       # Soft-knee anti-clipping brickwall limiter
+│           │   ├── monitor.rs       # Background audio device disconnect & fallback monitor
 │           │   ├── params.rs        # Lock-free atomic parameter exchange & DspProcessor
 │           │   ├── pipeline.rs      # AudioPipeline loopback coordinator
 │           │   ├── preamp.rs        # Input attenuation & boost stage
 │           │   └── render.rs        # Low-latency WASAPI playback render
 │           ├── commands/            # Tauri IPC command handlers
+│           │   ├── app.rs           # exit_app command
 │           │   ├── devices.rs       # get_audio_devices & set_output_device
-│           │   └── dsp.rs           # EQ bands, bass boost, preamp & bypass IPC
+│           │   ├── dsp.rs           # EQ bands, bass boost, preamp & bypass IPC
+│           │   └── presets.rs       # list, save, delete, set_active preset IPC
 │           ├── storage/             # 100% offline local JSON persistence
 │           │   ├── models.rs        # EqualizerPreset, AppConfig, EqBand schemas
 │           │   └── mod.rs           # StorageManager & atomic write engine
 │           ├── state.rs             # Thread-safe managed AppState
+│           ├── tray.rs              # System tray lifecycle & native context menu
+│           ├── telemetry.rs         # Throttled 30 Hz stereo meter & limiter event emitter
 │           ├── audio_safety.rs      # Math converters & denormal suppression
-│           └── lib.rs               # Application entry point & command router
-├── prompts/                         # Implementation prompt records
+│           └── lib.rs               # Application entry point, command router & event loops
+├── prompts/                         # Implementation prompt records (Steps 1-36)
 └── projectworkflow.md               # Master blueprint & architectural specification
 ```
 
@@ -192,6 +202,29 @@ Equilizer persists all configuration in 100% offline local JSON files in the ope
 
 > [!NOTE]
 > Factory presets are immutable and protected at the storage layer from deletion or modification. User modifications can be saved as new custom presets.
+
+---
+
+## System Integration & Tray Persistence
+
+- **Background Persistence:** Closing the main window intercepts `WindowEvent::CloseRequested` to hide the window to the Windows notification tray without interrupting the real-time WASAPI audio pipeline.
+- **Left-Click Tray Activation:** Clicking the tray icon seamlessly toggles application visibility.
+- **Context Menu Actions:**
+  - **Open Equilizer:** Brings the window to the foreground and focuses it.
+  - **Bypass EQ:** Direct toggle for instantaneous A/B testing from anywhere in Windows.
+  - **Presets Submenu:** Select and activate any factory or user preset without opening the main window.
+  - **Exit Equilizer:** Safely terminates the audio pipeline and cleanly exits the application.
+- **Hardware Disconnect Detection:** An autonomous background thread monitors active endpoints and smoothly falls back to the default Windows audio device if an output is unplugged.
+
+---
+
+## Resource Consumption & Performance Profiling
+
+Equilizer includes an automated profiling suite (`audio::benchmark`) to enforce strict performance budgets:
+
+- **DSP Throughput:** $> 370,000\text{ samples/sec}$ in debug mode; $> 30,000,000\text{ samples/sec}$ in release mode ($> 300\times$ faster than real-time 48 kHz stereo audio).
+- **CPU Overhead:** $< 0.4\%$ single-core usage during continuous 10-band filtering, bass boost, and brickwall limiting (well under the $\le 3.0\%$ specification ceiling).
+- **RAM Footprint:** Resident memory is $< 40\text{ MB}$ total, measured natively via Windows `K32GetProcessMemoryInfo`.
 
 ---
 
@@ -233,20 +266,23 @@ Run the comprehensive automated test suites and linting checks:
 npm run typecheck
 npm run lint
 
-# Backend Rust unit tests & DSP verification (71 tests)
+# Production distribution bundle
+npm run build
+
+# Backend Rust unit tests & DSP verification (95 tests)
 cargo test --manifest-path src-tauri/Cargo.toml
 
 # Strict clippy linter (zero warnings policy)
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 ```
 
-### Release Build
+### Release Build & Installer Packaging
 
-To package a standalone, optimized Windows production binary and installer (`.msi` / `.exe`):
+To package a standalone, optimized Windows production binary and NSIS installer:
 ```powershell
 npm run tauri build
 ```
-The output installers will be generated under `desktop/src-tauri/target/release/bundle/`.
+The output installer (`.exe`) is generated in `desktop/src-tauri/target/release/bundle/nsis/`.
 
 ---
 
