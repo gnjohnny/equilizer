@@ -6,6 +6,8 @@ pub fn run() {
         .expect("error while running equilizer application");
 }
 
+pub mod audio;
+
 pub mod audio_safety {
     /// Safe conversion from decibels to linear amplitude: 10^(dB / 20)
     pub fn db_to_linear(db: f32) -> f32 {
