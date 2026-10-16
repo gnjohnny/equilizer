@@ -27,10 +27,19 @@ fn render_multichannel_f32(
             let needed_samples = frames * 2;
             let read = consumer.pop_slice(&mut stereo[..needed_samples]);
             if read < needed_samples {
-                for s in &mut stereo[read..needed_samples] {
+                let shortfall = needed_samples - read;
+                underruns.fetch_add(shortfall, Ordering::Relaxed);
+                let last_l = if read >= 2 { stereo[read - 2] } else { 0.0 };
+                let last_r = if read >= 2 { stereo[read - 1] } else { 0.0 };
+                let fade_frames = (shortfall / 2).min(16);
+                for f in 0..fade_frames {
+                    let factor = 1.0 - ((f + 1) as f32 / (fade_frames + 1) as f32);
+                    stereo[read + f * 2] = last_l * factor;
+                    stereo[read + f * 2 + 1] = last_r * factor;
+                }
+                for s in &mut stereo[read + fade_frames * 2..needed_samples] {
                     *s = 0.0;
                 }
-                underruns.fetch_add(needed_samples - read, Ordering::Relaxed);
             }
             dsp.process_interleaved_stereo(&mut stereo[..needed_samples]);
             for i in 0..frames {
@@ -49,10 +58,19 @@ fn render_multichannel_f32(
             let needed_samples = frames * 2;
             let read = consumer.pop_slice(&mut stereo[..needed_samples]);
             if read < needed_samples {
-                for s in &mut stereo[read..needed_samples] {
+                let shortfall = needed_samples - read;
+                underruns.fetch_add(shortfall, Ordering::Relaxed);
+                let last_l = if read >= 2 { stereo[read - 2] } else { 0.0 };
+                let last_r = if read >= 2 { stereo[read - 1] } else { 0.0 };
+                let fade_frames = (shortfall / 2).min(16);
+                for f in 0..fade_frames {
+                    let factor = 1.0 - ((f + 1) as f32 / (fade_frames + 1) as f32);
+                    stereo[read + f * 2] = last_l * factor;
+                    stereo[read + f * 2 + 1] = last_r * factor;
+                }
+                for s in &mut stereo[read + fade_frames * 2..needed_samples] {
                     *s = 0.0;
                 }
-                underruns.fetch_add(needed_samples - read, Ordering::Relaxed);
             }
 
             dsp.process_interleaved_stereo(&mut stereo[..needed_samples]);
@@ -105,10 +123,19 @@ fn render_multichannel_i16(
             let needed = frames * 2;
             let read = consumer.pop_slice(&mut stereo[..needed]);
             if read < needed {
-                for s in &mut stereo[read..needed] {
+                let shortfall = needed - read;
+                underruns.fetch_add(shortfall, Ordering::Relaxed);
+                let last_l = if read >= 2 { stereo[read - 2] } else { 0.0 };
+                let last_r = if read >= 2 { stereo[read - 1] } else { 0.0 };
+                let fade_frames = (shortfall / 2).min(16);
+                for f in 0..fade_frames {
+                    let factor = 1.0 - ((f + 1) as f32 / (fade_frames + 1) as f32);
+                    stereo[read + f * 2] = last_l * factor;
+                    stereo[read + f * 2 + 1] = last_r * factor;
+                }
+                for s in &mut stereo[read + fade_frames * 2..needed] {
                     *s = 0.0;
                 }
-                underruns.fetch_add(needed - read, Ordering::Relaxed);
             }
             dsp.process_interleaved_stereo(&mut stereo[..needed]);
             for i in 0..frames {
@@ -126,10 +153,19 @@ fn render_multichannel_i16(
             let needed = frames * 2;
             let read = consumer.pop_slice(&mut stereo[..needed]);
             if read < needed {
-                for s in &mut stereo[read..needed] {
+                let shortfall = needed - read;
+                underruns.fetch_add(shortfall, Ordering::Relaxed);
+                let last_l = if read >= 2 { stereo[read - 2] } else { 0.0 };
+                let last_r = if read >= 2 { stereo[read - 1] } else { 0.0 };
+                let fade_frames = (shortfall / 2).min(16);
+                for f in 0..fade_frames {
+                    let factor = 1.0 - ((f + 1) as f32 / (fade_frames + 1) as f32);
+                    stereo[read + f * 2] = last_l * factor;
+                    stereo[read + f * 2 + 1] = last_r * factor;
+                }
+                for s in &mut stereo[read + fade_frames * 2..needed] {
                     *s = 0.0;
                 }
-                underruns.fetch_add(needed - read, Ordering::Relaxed);
             }
             dsp.process_interleaved_stereo(&mut stereo[..needed]);
             for i in 0..frames {
@@ -181,10 +217,19 @@ fn render_multichannel_u16(
             let needed = frames * 2;
             let read = consumer.pop_slice(&mut stereo[..needed]);
             if read < needed {
-                for s in &mut stereo[read..needed] {
+                let shortfall = needed - read;
+                underruns.fetch_add(shortfall, Ordering::Relaxed);
+                let last_l = if read >= 2 { stereo[read - 2] } else { 0.0 };
+                let last_r = if read >= 2 { stereo[read - 1] } else { 0.0 };
+                let fade_frames = (shortfall / 2).min(16);
+                for f in 0..fade_frames {
+                    let factor = 1.0 - ((f + 1) as f32 / (fade_frames + 1) as f32);
+                    stereo[read + f * 2] = last_l * factor;
+                    stereo[read + f * 2 + 1] = last_r * factor;
+                }
+                for s in &mut stereo[read + fade_frames * 2..needed] {
                     *s = 0.0;
                 }
-                underruns.fetch_add(needed - read, Ordering::Relaxed);
             }
             dsp.process_interleaved_stereo(&mut stereo[..needed]);
             for i in 0..frames {
@@ -202,10 +247,19 @@ fn render_multichannel_u16(
             let needed = frames * 2;
             let read = consumer.pop_slice(&mut stereo[..needed]);
             if read < needed {
-                for s in &mut stereo[read..needed] {
+                let shortfall = needed - read;
+                underruns.fetch_add(shortfall, Ordering::Relaxed);
+                let last_l = if read >= 2 { stereo[read - 2] } else { 0.0 };
+                let last_r = if read >= 2 { stereo[read - 1] } else { 0.0 };
+                let fade_frames = (shortfall / 2).min(16);
+                for f in 0..fade_frames {
+                    let factor = 1.0 - ((f + 1) as f32 / (fade_frames + 1) as f32);
+                    stereo[read + f * 2] = last_l * factor;
+                    stereo[read + f * 2 + 1] = last_r * factor;
+                }
+                for s in &mut stereo[read + fade_frames * 2..needed] {
                     *s = 0.0;
                 }
-                underruns.fetch_add(needed - read, Ordering::Relaxed);
             }
             dsp.process_interleaved_stereo(&mut stereo[..needed]);
             for i in 0..frames {
@@ -307,17 +361,23 @@ impl WasapiRender {
                 let mut consumer = consumer;
                 let ch_usize = channels as usize;
                 let mut dsp = DspProcessor::new(sample_rate, param_receiver, telemetry_clone);
+                let mut starvation_streak: usize = 0;
+                let mut drift_counter: usize = 0;
+
                 device
                     .build_output_stream(
                         &config,
                         move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                             let needed_stereo_samples = (data.len() / ch_usize) * 2;
-                            let min_required = prebuffer_threshold.max(needed_stereo_samples * 2);
+                            // Target watermark: 4x callback period (~88 ms cushion @ 48 kHz stereo)
+                            let target_watermark = needed_stereo_samples * 4;
+                            let min_startup_watermark = prebuffer_threshold.max(target_watermark);
 
                             let is_prebuffered = prebuffered_clone.load(Ordering::Relaxed);
                             if !is_prebuffered {
-                                if consumer.len() >= min_required {
+                                if consumer.len() >= min_startup_watermark {
                                     prebuffered_clone.store(true, Ordering::Relaxed);
+                                    starvation_streak = 0;
                                 } else {
                                     for sample in data.iter_mut() {
                                         *sample = 0.0;
@@ -327,17 +387,73 @@ impl WasapiRender {
                             }
 
                             if ch_usize == 2 {
-                                let read = consumer.pop_slice(data);
-                                if read < data.len() {
-                                    for sample in &mut data[read..] {
-                                        *sample = 0.0;
-                                    }
-                                    underruns_clone
-                                        .fetch_add(data.len() - read, Ordering::Relaxed);
-                                    if consumer.is_empty() {
-                                        prebuffered_clone.store(false, Ordering::Relaxed);
+                                // Adaptive Clock Drift Compensation:
+                                // Check buffer fullness every ~8,192 samples (~85 ms)
+                                drift_counter = drift_counter.wrapping_add(data.len());
+                                let low_watermark = needed_stereo_samples * 2;
+                                let high_watermark = needed_stereo_samples * 6;
+                                let current_level = consumer.len();
+
+                                let mut micro_stuff_needed = false;
+                                if drift_counter >= 8192 {
+                                    drift_counter = 0;
+                                    if current_level < low_watermark && current_level >= needed_stereo_samples {
+                                        // Buffer is slowly draining: consume 1 fewer frame (2 samples)
+                                        micro_stuff_needed = true;
+                                    } else if current_level > high_watermark {
+                                        // Buffer is slowly building: drop 1 frame (2 samples) from ring buffer
+                                        let _ = consumer.pop();
+                                        let _ = consumer.pop();
                                     }
                                 }
+
+                                let samples_to_read = if micro_stuff_needed && data.len() >= 4 {
+                                    data.len() - 2
+                                } else {
+                                    data.len()
+                                };
+
+                                let read = consumer.pop_slice(&mut data[..samples_to_read]);
+
+                                if micro_stuff_needed && read == samples_to_read && data.len() >= 4 {
+                                    // Synthesize the final frame smoothly by duplicating previous frame
+                                    let last_idx = data.len() - 1;
+                                    data[last_idx - 1] = data[last_idx - 3];
+                                    data[last_idx] = data[last_idx - 2];
+                                } else if read < data.len() {
+                                    // Underrun: apply Soft-Knee Packet Loss Concealment (PLC)
+                                    let shortfall = data.len() - read;
+                                    underruns_clone.fetch_add(shortfall, Ordering::Relaxed);
+
+                                    if read == 0 {
+                                        starvation_streak = starvation_streak.saturating_add(1);
+                                        for sample in data.iter_mut() {
+                                            *sample = 0.0;
+                                        }
+                                        // Only transition back to pre-buffering after 10 consecutive empty callbacks
+                                        // (~220 ms of unbroken silence, meaning audio stopped/paused)
+                                        if starvation_streak >= 10 {
+                                            prebuffered_clone.store(false, Ordering::Relaxed);
+                                        }
+                                    } else {
+                                        starvation_streak = 0;
+                                        // Smooth exponential decay fade-out over up to 32 frames (64 samples)
+                                        let last_l = if read >= 2 { data[read - 2] } else { 0.0 };
+                                        let last_r = if read >= 2 { data[read - 1] } else { 0.0 };
+                                        let fade_frames = (shortfall / 2).min(32);
+                                        for f in 0..fade_frames {
+                                            let factor = 1.0 - ((f + 1) as f32 / (fade_frames + 1) as f32);
+                                            data[read + f * 2] = last_l * factor;
+                                            data[read + f * 2 + 1] = last_r * factor;
+                                        }
+                                        for sample in &mut data[read + fade_frames * 2..] {
+                                            *sample = 0.0;
+                                        }
+                                    }
+                                } else {
+                                    starvation_streak = 0;
+                                }
+
                                 dsp.process_interleaved_stereo(data);
                             } else {
                                 render_multichannel_f32(
@@ -348,7 +464,12 @@ impl WasapiRender {
                                     &underruns_clone,
                                 );
                                 if consumer.is_empty() {
-                                    prebuffered_clone.store(false, Ordering::Relaxed);
+                                    starvation_streak = starvation_streak.saturating_add(1);
+                                    if starvation_streak >= 10 {
+                                        prebuffered_clone.store(false, Ordering::Relaxed);
+                                    }
+                                } else {
+                                    starvation_streak = 0;
                                 }
                             }
                         },
@@ -361,17 +482,22 @@ impl WasapiRender {
                 let mut consumer = consumer;
                 let ch_usize = channels as usize;
                 let mut dsp = DspProcessor::new(sample_rate, param_receiver, telemetry_clone);
+                let mut starvation_streak: usize = 0;
+                let mut drift_counter: usize = 0;
+
                 device
                     .build_output_stream(
                         &config,
                         move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
                             let needed_stereo_samples = (data.len() / ch_usize) * 2;
-                            let min_required = prebuffer_threshold.max(needed_stereo_samples * 2);
+                            let target_watermark = needed_stereo_samples * 4;
+                            let min_startup_watermark = prebuffer_threshold.max(target_watermark);
 
                             let is_prebuffered = prebuffered_clone.load(Ordering::Relaxed);
                             if !is_prebuffered {
-                                if consumer.len() >= min_required {
+                                if consumer.len() >= min_startup_watermark {
                                     prebuffered_clone.store(true, Ordering::Relaxed);
+                                    starvation_streak = 0;
                                 } else {
                                     for sample in data.iter_mut() {
                                         *sample = 0;
@@ -381,19 +507,36 @@ impl WasapiRender {
                             }
 
                             if ch_usize == 2 {
+                                drift_counter = drift_counter.wrapping_add(data.len());
+                                let high_watermark = needed_stereo_samples * 6;
+                                let current_level = consumer.len();
+
+                                if drift_counter >= 8192 {
+                                    drift_counter = 0;
+                                    if current_level > high_watermark {
+                                        let _ = consumer.pop();
+                                        let _ = consumer.pop();
+                                    }
+                                }
+
                                 let mut offset = 0;
                                 let mut stack_buf = [0.0f32; 128];
                                 while offset < data.len() {
                                     let chunk_len = (data.len() - offset).min(128);
                                     let read = consumer.pop_slice(&mut stack_buf[..chunk_len]);
                                     if read < chunk_len {
-                                        for s in &mut stack_buf[read..chunk_len] {
-                                            *s = 0.0;
+                                        let shortfall = chunk_len - read;
+                                        underruns_clone.fetch_add(shortfall, Ordering::Relaxed);
+                                        let last_l = if read >= 2 { stack_buf[read - 2] } else { 0.0 };
+                                        let last_r = if read >= 2 { stack_buf[read - 1] } else { 0.0 };
+                                        let fade_frames = (shortfall / 2).min(16);
+                                        for f in 0..fade_frames {
+                                            let factor = 1.0 - ((f + 1) as f32 / (fade_frames + 1) as f32);
+                                            stack_buf[read + f * 2] = last_l * factor;
+                                            stack_buf[read + f * 2 + 1] = last_r * factor;
                                         }
-                                        underruns_clone
-                                            .fetch_add(chunk_len - read, Ordering::Relaxed);
-                                        if consumer.is_empty() {
-                                            prebuffered_clone.store(false, Ordering::Relaxed);
+                                        for s in &mut stack_buf[read + fade_frames * 2..chunk_len] {
+                                            *s = 0.0;
                                         }
                                     }
                                     dsp.process_interleaved_stereo(&mut stack_buf[..chunk_len]);
@@ -404,6 +547,15 @@ impl WasapiRender {
                                     }
                                     offset += chunk_len;
                                 }
+
+                                if consumer.is_empty() {
+                                    starvation_streak = starvation_streak.saturating_add(1);
+                                    if starvation_streak >= 10 {
+                                        prebuffered_clone.store(false, Ordering::Relaxed);
+                                    }
+                                } else {
+                                    starvation_streak = 0;
+                                }
                             } else {
                                 render_multichannel_i16(
                                     &mut consumer,
@@ -413,7 +565,12 @@ impl WasapiRender {
                                     &underruns_clone,
                                 );
                                 if consumer.is_empty() {
-                                    prebuffered_clone.store(false, Ordering::Relaxed);
+                                    starvation_streak = starvation_streak.saturating_add(1);
+                                    if starvation_streak >= 10 {
+                                        prebuffered_clone.store(false, Ordering::Relaxed);
+                                    }
+                                } else {
+                                    starvation_streak = 0;
                                 }
                             }
                         },
@@ -426,17 +583,22 @@ impl WasapiRender {
                 let mut consumer = consumer;
                 let ch_usize = channels as usize;
                 let mut dsp = DspProcessor::new(sample_rate, param_receiver, telemetry_clone);
+                let mut starvation_streak: usize = 0;
+                let mut drift_counter: usize = 0;
+
                 device
                     .build_output_stream(
                         &config,
                         move |data: &mut [u16], _: &cpal::OutputCallbackInfo| {
                             let needed_stereo_samples = (data.len() / ch_usize) * 2;
-                            let min_required = prebuffer_threshold.max(needed_stereo_samples * 2);
+                            let target_watermark = needed_stereo_samples * 4;
+                            let min_startup_watermark = prebuffer_threshold.max(target_watermark);
 
                             let is_prebuffered = prebuffered_clone.load(Ordering::Relaxed);
                             if !is_prebuffered {
-                                if consumer.len() >= min_required {
+                                if consumer.len() >= min_startup_watermark {
                                     prebuffered_clone.store(true, Ordering::Relaxed);
+                                    starvation_streak = 0;
                                 } else {
                                     for sample in data.iter_mut() {
                                         *sample = 32768;
@@ -446,19 +608,36 @@ impl WasapiRender {
                             }
 
                             if ch_usize == 2 {
+                                drift_counter = drift_counter.wrapping_add(data.len());
+                                let high_watermark = needed_stereo_samples * 6;
+                                let current_level = consumer.len();
+
+                                if drift_counter >= 8192 {
+                                    drift_counter = 0;
+                                    if current_level > high_watermark {
+                                        let _ = consumer.pop();
+                                        let _ = consumer.pop();
+                                    }
+                                }
+
                                 let mut offset = 0;
                                 let mut stack_buf = [0.0f32; 128];
                                 while offset < data.len() {
                                     let chunk_len = (data.len() - offset).min(128);
                                     let read = consumer.pop_slice(&mut stack_buf[..chunk_len]);
                                     if read < chunk_len {
-                                        for s in &mut stack_buf[read..chunk_len] {
-                                            *s = 0.0;
+                                        let shortfall = chunk_len - read;
+                                        underruns_clone.fetch_add(shortfall, Ordering::Relaxed);
+                                        let last_l = if read >= 2 { stack_buf[read - 2] } else { 0.0 };
+                                        let last_r = if read >= 2 { stack_buf[read - 1] } else { 0.0 };
+                                        let fade_frames = (shortfall / 2).min(16);
+                                        for f in 0..fade_frames {
+                                            let factor = 1.0 - ((f + 1) as f32 / (fade_frames + 1) as f32);
+                                            stack_buf[read + f * 2] = last_l * factor;
+                                            stack_buf[read + f * 2 + 1] = last_r * factor;
                                         }
-                                        underruns_clone
-                                            .fetch_add(chunk_len - read, Ordering::Relaxed);
-                                        if consumer.is_empty() {
-                                            prebuffered_clone.store(false, Ordering::Relaxed);
+                                        for s in &mut stack_buf[read + fade_frames * 2..chunk_len] {
+                                            *s = 0.0;
                                         }
                                     }
                                     dsp.process_interleaved_stereo(&mut stack_buf[..chunk_len]);
@@ -469,6 +648,15 @@ impl WasapiRender {
                                     }
                                     offset += chunk_len;
                                 }
+
+                                if consumer.is_empty() {
+                                    starvation_streak = starvation_streak.saturating_add(1);
+                                    if starvation_streak >= 10 {
+                                        prebuffered_clone.store(false, Ordering::Relaxed);
+                                    }
+                                } else {
+                                    starvation_streak = 0;
+                                }
                             } else {
                                 render_multichannel_u16(
                                     &mut consumer,
@@ -478,7 +666,12 @@ impl WasapiRender {
                                     &underruns_clone,
                                 );
                                 if consumer.is_empty() {
-                                    prebuffered_clone.store(false, Ordering::Relaxed);
+                                    starvation_streak = starvation_streak.saturating_add(1);
+                                    if starvation_streak >= 10 {
+                                        prebuffered_clone.store(false, Ordering::Relaxed);
+                                    }
+                                } else {
+                                    starvation_streak = 0;
                                 }
                             }
                         },
@@ -609,9 +802,9 @@ mod tests {
             return;
         }
 
-        let (mut producer, consumer) = AudioRingBuffer::new(16384);
-        // Pre-fill samples so dynamic hardware prebuffering threshold (>= 4224) is satisfied
-        let dummy = vec![0.05f32; 8192];
+        let (mut producer, consumer) = AudioRingBuffer::new(32768);
+        // Pre-fill samples so dynamic hardware prebuffering threshold (>= 8448) is satisfied
+        let dummy = vec![0.05f32; 16384];
         producer.push_slice(&dummy);
 
         let render_result = WasapiRender::from_default_device(consumer);
