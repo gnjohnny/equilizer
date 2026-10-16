@@ -127,4 +127,92 @@ impl AppState {
             Ok(())
         }
     }
+
+    /// Dispatches updated 10-band equalizer settings to the active audio pipeline.
+    pub fn update_eq_bands(&self, bands: Vec<crate::storage::EqBand>) -> Result<(), String> {
+        let lock = self
+            .pipeline
+            .lock()
+            .map_err(|e| format!("Failed to acquire pipeline lock: {}", e))?;
+
+        if let Some(ref p) = *lock {
+            if bands.len() == 10 {
+                let mut arr: [crate::audio::EqBandConfig; 10] = Default::default();
+                for (i, b) in bands.into_iter().enumerate() {
+                    let mut config: crate::audio::EqBandConfig = b.into();
+                    config.frequency_hz = config.frequency_hz.clamp(20.0, 20000.0);
+                    config.gain_db = config.gain_db.clamp(-24.0, 24.0);
+                    config.q = config.q.clamp(0.1, 10.0);
+                    arr[i] = config;
+                }
+                p.update_all_bands(arr)
+                    .map_err(|e| format!("Failed to update EQ bands: {}", e))?;
+            } else {
+                for (i, b) in bands.into_iter().enumerate().take(10) {
+                    let mut config: crate::audio::EqBandConfig = b.into();
+                    config.frequency_hz = config.frequency_hz.clamp(20.0, 20000.0);
+                    config.gain_db = config.gain_db.clamp(-24.0, 24.0);
+                    config.q = config.q.clamp(0.1, 10.0);
+                    p.update_band(i, config)
+                        .map_err(|e| format!("Failed to update band {}: {}", i, e))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Dispatches dedicated bass boost configuration to the active audio pipeline.
+    pub fn update_bass_boost(&self, mut config: crate::storage::BassBoostConfig) -> Result<(), String> {
+        config.gain_db = config.gain_db.clamp(0.0, 12.0);
+        match config.mode {
+            crate::storage::BassBoostMode::SubBass => config.frequency_hz = 45.0,
+            crate::storage::BassBoostMode::Punch => config.frequency_hz = 90.0,
+        }
+
+        let lock = self
+            .pipeline
+            .lock()
+            .map_err(|e| format!("Failed to acquire pipeline lock: {}", e))?;
+
+        if let Some(ref p) = *lock {
+            p.set_bass_boost(config.into())
+                .map_err(|e| format!("Failed to update bass boost: {}", e))?;
+        }
+        Ok(())
+    }
+
+    /// Dispatches master pre-amp gain to the active audio pipeline.
+    pub fn set_preamp_gain(&self, gain_db: f32) -> Result<(), String> {
+        let clamped = gain_db.clamp(-20.0, 6.0);
+        let lock = self
+            .pipeline
+            .lock()
+            .map_err(|e| format!("Failed to acquire pipeline lock: {}", e))?;
+
+        if let Some(ref p) = *lock {
+            p.set_preamp_gain(clamped)
+                .map_err(|e| format!("Failed to set preamp gain: {}", e))?;
+        }
+        Ok(())
+    }
+
+    /// Toggles master DSP bypass on the active audio pipeline and persists the setting.
+    pub fn toggle_bypass(&self, bypassed: bool) -> Result<(), String> {
+        let lock = self
+            .pipeline
+            .lock()
+            .map_err(|e| format!("Failed to acquire pipeline lock: {}", e))?;
+
+        if let Some(ref p) = *lock {
+            p.set_bypass(bypassed)
+                .map_err(|e| format!("Failed to toggle bypass: {}", e))?;
+        }
+
+        if let Ok(mut settings) = self.storage.load_settings() {
+            settings.is_bypassed = bypassed;
+            let _ = self.storage.save_settings(&settings);
+        }
+
+        Ok(())
+    }
 }

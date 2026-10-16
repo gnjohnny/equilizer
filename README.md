@@ -1,7 +1,7 @@
 # Equilizer
 
 <p align="center">
-  <img src="desktop/public/icon.svg" alt="Equilizer Logo" width="96" height="96" />
+  <img src="desktop/src-tauri/icons/icon.png" alt="Equilizer Logo" width="96" height="96" />
 </p>
 
 <p align="center">
