@@ -3,8 +3,10 @@ pub mod commands;
 pub mod state;
 pub mod storage;
 pub mod telemetry;
+pub mod tray;
 
 pub use state::AppState;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,12 +22,39 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(app_state)
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .setup(move |app| {
             let handle = app.handle().clone();
-            telemetry::spawn_telemetry_emitter(handle, telemetry_running_clone);
+            telemetry::spawn_telemetry_emitter(handle.clone(), telemetry_running_clone);
+
+            // Initialize system tray icon and click handling
+            tray::setup_system_tray(&handle)?;
+
+            // Inspect startup minimization preference
+            let state = app.state::<AppState>();
+            let start_minimized = state
+                .storage
+                .load_settings()
+                .map(|s| s.start_minimized_to_tray)
+                .unwrap_or(false);
+
+            if start_minimized {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::app::exit_app,
+            commands::app::show_main_window,
+            commands::app::hide_main_window,
             commands::devices::get_audio_devices,
             commands::devices::set_output_device,
             commands::devices::start_audio_pipeline,
