@@ -74,6 +74,9 @@ pub struct WasapiRender {
     telemetry: Arc<AudioTelemetry>,
 }
 
+// On Windows WASAPI, cpal::Stream is safe to transfer between threads.
+unsafe impl Send for WasapiRender {}
+
 impl WasapiRender {
     /// Pre-buffering threshold in samples before active playback streaming begins (~5.3 ms @ 48 kHz).
     pub const DEFAULT_PREBUFFER_THRESHOLD: usize = 256;

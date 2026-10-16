@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 
 /// Audio output endpoint metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct AudioDeviceInfo {
     pub id: String,
     pub name: String,

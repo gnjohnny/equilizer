@@ -1,13 +1,28 @@
+pub mod audio;
+pub mod commands;
+pub mod state;
+pub mod storage;
+
+pub use state::AppState;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let storage = storage::StorageManager::from_app_data().unwrap_or_else(|_| {
+        let fallback_dir = std::env::temp_dir().join("equilizer");
+        storage::StorageManager::new(fallback_dir)
+    });
+    let app_state = AppState::new(storage);
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(app_state)
+        .invoke_handler(tauri::generate_handler![
+            commands::devices::get_audio_devices,
+            commands::devices::set_output_device,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running equilizer application");
 }
-
-pub mod audio;
-pub mod storage;
 
 pub mod audio_safety {
     /// Safe conversion from decibels to linear amplitude: 10^(dB / 20)

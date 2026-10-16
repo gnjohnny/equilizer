@@ -31,6 +31,9 @@ pub struct WasapiCapture {
     sample_format: SampleFormat,
 }
 
+// On Windows WASAPI, cpal::Stream is safe to transfer between threads.
+unsafe impl Send for WasapiCapture {}
+
 impl WasapiCapture {
     /// Builds a WASAPI loopback capture stream from the specified output device.
     /// Captured samples are converted to normalized f32 and forwarded to the lock-free ring buffer producer.

@@ -18,6 +18,9 @@ pub struct AudioPipeline {
     is_running: AtomicBool,
 }
 
+// AudioPipeline can be safely sent across threads.
+unsafe impl Send for AudioPipeline {}
+
 impl AudioPipeline {
     /// Default buffer capacity: 32,768 f32 samples (~340 ms buffer @ 96 kHz stereo or ~740 ms @ 44.1 kHz).
     pub const DEFAULT_BUFFER_CAPACITY: usize = 32768;
