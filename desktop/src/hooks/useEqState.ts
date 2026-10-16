@@ -54,6 +54,24 @@ export function useEqState({
     }
   }, [activePreset]);
 
+  // Synchronize with external bypass changes (e.g. from System Tray right-click context menu)
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<boolean>("app:bypass-changed", (event) => {
+        setIsBypassed(event.payload);
+      }).then((dispose) => {
+        unlisten = dispose;
+      });
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
   // IPC Dispatch for EQ Bands
   const updateBand = useCallback((updatedBand: EqBand) => {
     setBands((prevBands) => {

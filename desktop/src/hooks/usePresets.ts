@@ -74,6 +74,26 @@ export function usePresets(): UsePresetsReturn {
     };
   }, []);
 
+  // Synchronize with external active preset updates (e.g. from System Tray right-click context menu)
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<EqualizerPreset>("app:preset-changed", (event) => {
+        if (event.payload?.id) {
+          setActivePresetId(event.payload.id);
+        }
+      }).then((dispose) => {
+        unlisten = dispose;
+      });
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
   const reloadPresets = useCallback(async () => {
     if (!isTauri()) return;
 
