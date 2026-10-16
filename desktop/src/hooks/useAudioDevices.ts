@@ -86,6 +86,31 @@ export function useAudioDevices(): UseAudioDevicesReturn {
     }
   }, []);
 
+  // Listen for audio hardware disconnect / device change notifications
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<{ disconnectedId: string; fallbackId: string }>(
+        "audio:device-change",
+        (event) => {
+          console.warn(
+            `Audio endpoint disconnected: ${event.payload.disconnectedId}. Falling back to ${event.payload.fallbackId}.`
+          );
+          setSelectedDeviceId("default");
+          refreshDevices();
+        }
+      ).then((dispose) => {
+        unlisten = dispose;
+      });
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [refreshDevices]);
+
   const selectDevice = useCallback(async (deviceId: string) => {
     setSelectedDeviceId(deviceId);
 

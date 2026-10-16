@@ -103,6 +103,16 @@ impl AppState {
         Ok(())
     }
 
+    /// Gracefully handles device disconnection by resetting to the system default audio endpoint.
+    pub fn handle_device_disconnect(&self, disconnected_id: &str) -> Result<String, String> {
+        eprintln!(
+            "Audio hardware disconnect detected for '{}'. Gracefully falling back to system default.",
+            disconnected_id
+        );
+        self.set_output_device(None)?;
+        Ok("default".to_string())
+    }
+
     /// Starts audio playback streaming on the active pipeline.
     pub fn start_pipeline(&self) -> Result<(), AudioError> {
         let lock = self

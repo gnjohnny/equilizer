@@ -4,6 +4,7 @@ pub mod buffer;
 pub mod capture;
 pub mod dsp;
 pub mod limiter;
+pub mod monitor;
 pub mod params;
 pub mod pipeline;
 pub mod preamp;
@@ -17,6 +18,7 @@ pub use limiter::{
     Limiter, LimiterConfig, DEFAULT_LIMITER_ATTACK_MS, DEFAULT_LIMITER_CEILING_DB,
     DEFAULT_LIMITER_KNEE_DB, DEFAULT_LIMITER_RELEASE_MS, DEFAULT_LIMITER_THRESHOLD_DB,
 };
+pub use monitor::{spawn_device_monitor, DeviceChangeEventPayload};
 pub use params::{
     create_param_channel, AtomicF32, AudioTelemetry, DspCommand, DspParamReceiver, DspParamSender,
     DspProcessor, SendError, TelemetrySnapshot,

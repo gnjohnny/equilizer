@@ -18,6 +18,8 @@ pub fn run() {
 
     let telemetry_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
     let telemetry_running_clone = std::sync::Arc::clone(&telemetry_running);
+    let device_monitor_running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let device_monitor_running_clone = std::sync::Arc::clone(&device_monitor_running);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -31,6 +33,7 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
             telemetry::spawn_telemetry_emitter(handle.clone(), telemetry_running_clone);
+            audio::spawn_device_monitor(handle.clone(), device_monitor_running_clone);
 
             // Initialize system tray icon and click handling
             tray::setup_system_tray(&handle)?;
