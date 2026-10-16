@@ -17,6 +17,9 @@ pub fn run() {
         prev_hook(panic_info);
     }));
 
+    // Install Windows console control handler for terminal Ctrl+C / close
+    audio::init_console_ctrl_handler();
+
     let storage = storage::StorageManager::from_app_data().unwrap_or_else(|_| {
         let fallback_dir = std::env::temp_dir().join("equilizer");
         storage::StorageManager::new(fallback_dir)
@@ -32,9 +35,11 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(app_state)
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if let Some(state) = window.try_state::<AppState>() {
+                    let _ = state.restore_system_routing();
+                }
+                window.app_handle().exit(0);
             }
         })
         .setup(move |app| {

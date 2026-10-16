@@ -204,6 +204,27 @@ impl<T> Drop for ComPtr<T> {
     }
 }
 
+#[link(name = "kernel32")]
+extern "system" {
+    fn SetConsoleCtrlHandler(
+        handler_routine: Option<unsafe extern "system" fn(u32) -> i32>,
+        add: i32,
+    ) -> i32;
+}
+
+unsafe extern "system" fn console_ctrl_handler(_ctrl_type: u32) -> i32 {
+    restore_emergency_endpoint();
+    0 // Return FALSE so Windows default termination can still proceed
+}
+
+/// Registers a native Windows console control handler to restore physical audio endpoints
+/// whenever the terminal process receives Ctrl+C (SIGINT), Ctrl+Break, or console closure.
+pub fn init_console_ctrl_handler() {
+    unsafe {
+        SetConsoleCtrlHandler(Some(console_ctrl_handler), 1);
+    }
+}
+
 static ORIGINAL_ENDPOINT_ID: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// Caches the known original physical hardware endpoint ID for emergency recovery.

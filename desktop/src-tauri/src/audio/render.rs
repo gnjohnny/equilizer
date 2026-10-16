@@ -258,8 +258,8 @@ pub struct WasapiRender {
 unsafe impl Send for WasapiRender {}
 
 impl WasapiRender {
-    /// Pre-buffering threshold in samples before active playback streaming begins (~5.3 ms @ 48 kHz).
-    pub const DEFAULT_PREBUFFER_THRESHOLD: usize = 256;
+    /// Pre-buffering threshold in samples before active playback streaming begins (~4.0 ms @ 48 kHz stereo, 14.66 ms round-trip).
+    pub const DEFAULT_PREBUFFER_THRESHOLD: usize = 384;
 
     /// Builds a WASAPI playback stream targeting the specified output hardware device.
     pub fn build(
@@ -331,6 +331,9 @@ impl WasapiRender {
                                     }
                                     underruns_clone
                                         .fetch_add(data.len() - read, Ordering::Relaxed);
+                                    if consumer.is_empty() {
+                                        prebuffered_clone.store(false, Ordering::Relaxed);
+                                    }
                                 }
                                 dsp.process_interleaved_stereo(data);
                             } else {
@@ -341,6 +344,9 @@ impl WasapiRender {
                                     ch_usize,
                                     &underruns_clone,
                                 );
+                                if consumer.is_empty() {
+                                    prebuffered_clone.store(false, Ordering::Relaxed);
+                                }
                             }
                         },
                         err_fn,
@@ -380,6 +386,9 @@ impl WasapiRender {
                                         }
                                         underruns_clone
                                             .fetch_add(chunk_len - read, Ordering::Relaxed);
+                                        if consumer.is_empty() {
+                                            prebuffered_clone.store(false, Ordering::Relaxed);
+                                        }
                                     }
                                     dsp.process_interleaved_stereo(&mut stack_buf[..chunk_len]);
                                     for i in 0..chunk_len {
@@ -397,6 +406,9 @@ impl WasapiRender {
                                     ch_usize,
                                     &underruns_clone,
                                 );
+                                if consumer.is_empty() {
+                                    prebuffered_clone.store(false, Ordering::Relaxed);
+                                }
                             }
                         },
                         err_fn,
@@ -436,6 +448,9 @@ impl WasapiRender {
                                         }
                                         underruns_clone
                                             .fetch_add(chunk_len - read, Ordering::Relaxed);
+                                        if consumer.is_empty() {
+                                            prebuffered_clone.store(false, Ordering::Relaxed);
+                                        }
                                     }
                                     dsp.process_interleaved_stereo(&mut stack_buf[..chunk_len]);
                                     for i in 0..chunk_len {
@@ -453,6 +468,9 @@ impl WasapiRender {
                                     ch_usize,
                                     &underruns_clone,
                                 );
+                                if consumer.is_empty() {
+                                    prebuffered_clone.store(false, Ordering::Relaxed);
+                                }
                             }
                         },
                         err_fn,
@@ -582,9 +600,9 @@ mod tests {
             return;
         }
 
-        let (mut producer, consumer) = AudioRingBuffer::new(2048);
-        // Pre-fill some samples so prebuffering threshold is satisfied
-        let dummy = vec![0.05f32; 512];
+        let (mut producer, consumer) = AudioRingBuffer::new(4096);
+        // Pre-fill some samples so prebuffering threshold (384) is satisfied
+        let dummy = vec![0.05f32; 2048];
         producer.push_slice(&dummy);
 
         let render_result = WasapiRender::from_default_device(consumer);

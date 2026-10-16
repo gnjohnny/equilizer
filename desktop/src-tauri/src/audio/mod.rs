@@ -12,8 +12,8 @@ pub mod preamp;
 pub mod render;
 
 pub use endpoint_policy::{
-    get_default_endpoint, record_original_endpoint, restore_emergency_endpoint,
-    switch_default_endpoint,
+    get_default_endpoint, init_console_ctrl_handler, record_original_endpoint,
+    restore_emergency_endpoint, switch_default_endpoint,
 };
 pub use bass_boost::{BassBoostConfig, BassBoostEngine, BassBoostMode, DEFAULT_BASS_BOOST_Q};
 pub use benchmark::{
