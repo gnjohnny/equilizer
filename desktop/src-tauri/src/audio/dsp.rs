@@ -516,4 +516,157 @@ mod tests {
             .fold(0.0f32, |a, b| a.max(b.abs()));
         assert!((max_val - 3.98).abs() < 0.2, "Max amplitude after 12dB boost: {}", max_val);
     }
+
+    #[test]
+    fn test_continuous_parameter_sweeps_zero_discontinuities() {
+        let sample_rate = 48000;
+        let mut chain = BiquadFilterChain::new(sample_rate);
+
+        // Generate 48,000 samples (1 sec @ 48 kHz stereo = 24,000 frames) of a 440 Hz sine wave
+        let total_frames = 24000;
+        let mut audio = Vec::with_capacity(total_frames * 2);
+        for n in 0..total_frames {
+            let t = n as f32 / sample_rate as f32;
+            let sample = (2.0 * PI * 440.0 * t).sin() * 0.5;
+            audio.push(sample); // Left
+            audio.push(sample); // Right
+        }
+
+        // Process in small 64-sample (32-frame) blocks, modulating filter parameters on every single block
+        let block_size = 64;
+        let mut offset = 0;
+        let mut block_idx = 0;
+
+        let mut prev_l = 0.0f32;
+        let mut prev_r = 0.0f32;
+        let mut max_delta_l = 0.0f32;
+        let mut max_delta_r = 0.0f32;
+
+        while offset < audio.len() {
+            let end = (offset + block_size).min(audio.len());
+            let block = &mut audio[offset..end];
+
+            // Perform continuous, aggressive parameter sweeps on active bands
+            let gain_cycle = ((block_idx % 20) as f32 - 10.0) * 2.4; // -24 dB to +24 dB
+            let freq_cycle = 200.0 + ((block_idx % 50) as f32 * 160.0); // 200 Hz to 8200 Hz
+            let q_cycle = 0.5 + ((block_idx % 10) as f32 * 0.5); // 0.5 to 5.0
+
+            chain.update_band(2, &EqBandConfig {
+                id: 3,
+                enabled: true,
+                filter_type: FilterType::Peaking,
+                frequency_hz: freq_cycle,
+                gain_db: gain_cycle,
+                q: q_cycle,
+            });
+
+            chain.update_band(5, &EqBandConfig {
+                id: 6,
+                enabled: true,
+                filter_type: FilterType::Peaking,
+                frequency_hz: 1000.0,
+                gain_db: -gain_cycle,
+                q: 1.5,
+            });
+
+            chain.process_interleaved_stereo(block);
+
+            // Verify sample-to-sample continuity and absence of transients / clicks
+            for chunk in block.chunks_exact(2) {
+                let l = chunk[0];
+                let r = chunk[1];
+
+                assert!(!l.is_nan() && !l.is_infinite(), "NaN/Inf detected in Left channel at frame {}", offset);
+                assert!(!r.is_nan() && !r.is_infinite(), "NaN/Inf detected in Right channel at frame {}", offset);
+
+                if offset > 0 {
+                    let delta_l = (l - prev_l).abs();
+                    let delta_r = (r - prev_r).abs();
+                    if delta_l > max_delta_l { max_delta_l = delta_l; }
+                    if delta_r > max_delta_r { max_delta_r = delta_r; }
+
+                    // A step discontinuity (click/pop) produces delta >= 1.0; smooth audio with DF2T maintains delta <= 0.45
+                    assert!(
+                        delta_l <= 0.45,
+                        "Abrupt discontinuity detected in Left channel: delta={:.4} at frame {}",
+                        delta_l, offset
+                    );
+                    assert!(
+                        delta_r <= 0.45,
+                        "Abrupt discontinuity detected in Right channel: delta={:.4} at frame {}",
+                        delta_r, offset
+                    );
+                }
+
+                prev_l = l;
+                prev_r = r;
+            }
+
+            offset = end;
+            block_idx += 1;
+        }
+
+        assert!(max_delta_l < 0.45, "Max left delta exceeded safety limit: {}", max_delta_l);
+        assert!(max_delta_r < 0.45, "Max right delta exceeded safety limit: {}", max_delta_r);
+    }
+
+    #[test]
+    fn test_rapid_preset_hopping_stability() {
+        let sample_rate = 48000;
+        let mut chain = BiquadFilterChain::new(sample_rate);
+
+        let total_frames = 12000;
+        let mut audio = Vec::with_capacity(total_frames * 2);
+        for n in 0..total_frames {
+            let t = n as f32 / sample_rate as f32;
+            let sample = (2.0 * PI * 1000.0 * t).sin() * 0.4;
+            audio.push(sample);
+            audio.push(sample);
+        }
+
+        // Define 4 contrasting presets to hop between using standard 10-band octave frequencies
+        const ISO_FREQS: [f32; 10] = [31.25, 62.5, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0];
+        let make_preset = |gain_bass: f32, gain_mid: f32, gain_treble: f32| {
+            let mut bands = [EqBandConfig::default(); 10];
+            for (i, b) in bands.iter_mut().enumerate() {
+                b.id = (i + 1) as u8;
+                b.enabled = true;
+                b.frequency_hz = ISO_FREQS[i];
+                b.q = 1.0;
+                b.filter_type = if i == 0 { FilterType::LowShelf } else if i == 9 { FilterType::HighShelf } else { FilterType::Peaking };
+                b.gain_db = if i < 3 { gain_bass } else if i < 7 { gain_mid } else { gain_treble };
+            }
+            bands
+        };
+
+        let presets = [
+            make_preset(15.0, 0.0, -12.0),  // Heavy bass, cut treble
+            make_preset(-15.0, 6.0, 15.0),  // Cut bass, boosted highs
+            make_preset(0.0, -20.0, 0.0),   // Mid scoop
+            make_preset(0.0, 0.0, 0.0),     // Flat reference
+        ];
+
+        let block_size = 128; // 64 frames
+        let mut offset = 0;
+        let mut preset_idx = 0;
+
+        while offset < audio.len() {
+            let end = (offset + block_size).min(audio.len());
+            let block = &mut audio[offset..end];
+
+            // Hop preset on every block
+            chain.update_all_bands(&presets[preset_idx % presets.len()]);
+
+            chain.process_interleaved_stereo(block);
+
+            for &s in block.iter() {
+                assert!(!s.is_nan() && !s.is_infinite(), "NaN or Inf produced during preset hop");
+                // Ensure output is bounded without numerical divergence
+                assert!(s.abs() < 10.0, "Filter instability detected during preset hop: {}", s);
+            }
+
+            offset = end;
+            preset_idx += 1;
+        }
+    }
 }

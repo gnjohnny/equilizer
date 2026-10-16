@@ -443,4 +443,112 @@ mod tests {
         assert!((snap.peak_l - 0.42).abs() < 1e-4);
         assert!(!snap.limiter_active);
     }
+
+    #[test]
+    fn test_concurrent_parameter_flooding_stress() {
+        let (sender, receiver) = create_param_channel(128);
+        let telemetry = Arc::new(AudioTelemetry::new());
+        let mut dsp = DspProcessor::new(48000, receiver, Arc::clone(&telemetry));
+
+        // 100,000 samples = 50,000 stereo frames (~1.04 sec of audio)
+        let total_samples = 100_000;
+        let mut audio = Vec::with_capacity(total_samples);
+        for n in 0..total_samples {
+            let t = n as f32 / 48000.0;
+            // Mix of 220 Hz and 880 Hz sine tones
+            let s = (2.0 * std::f32::consts::PI * 220.0 * t).sin() * 0.4
+                + (2.0 * std::f32::consts::PI * 880.0 * t).sin() * 0.2;
+            audio.push(s);
+        }
+
+        let chunk_size = 128;
+        let mut offset = 0;
+        let mut step = 0;
+
+        while offset < audio.len() {
+            let end = (offset + chunk_size).min(audio.len());
+            let chunk = &mut audio[offset..end];
+
+            // Flood parameters continuously through the sender
+            if step % 2 == 0 {
+                let _ = sender.set_preamp_gain(((step % 20) as f32 - 10.0) * 0.5); // -5.0 dB to +5.0 dB
+            }
+            if step % 3 == 0 {
+                let _ = sender.set_bass_boost(BassBoostConfig {
+                    enabled: step % 6 != 0,
+                    gain_db: (step % 12) as f32,
+                    mode: if step % 4 == 0 { BassBoostMode::SubBass } else { BassBoostMode::Punch },
+                    frequency_hz: if step % 4 == 0 { 45.0 } else { 90.0 },
+                });
+            }
+            if step % 5 == 0 {
+                let mut bands = [EqBandConfig::default(); 10];
+                for (i, b) in bands.iter_mut().enumerate() {
+                    b.id = (i + 1) as u8;
+                    b.enabled = true;
+                    b.frequency_hz = 60.0 * (1.5f32).powi(i as i32);
+                    b.gain_db = ((step + i) % 15) as f32 - 7.0; // -7 dB to +7 dB
+                    b.q = 1.0;
+                    b.filter_type = if i == 0 { FilterType::LowShelf } else if i == 9 { FilterType::HighShelf } else { FilterType::Peaking };
+                }
+                let _ = sender.update_all_bands(bands);
+            }
+
+            dsp.process_interleaved_stereo(chunk);
+
+            // Assert sample bounds and stability
+            for &sample in chunk.iter() {
+                assert!(!sample.is_nan() && !sample.is_infinite(), "NaN/Inf produced during stress parameter flood");
+                // Bounded by soft-knee limiter (threshold 0 dBFS + soft knee, peak should never blow up above 2.0)
+                assert!(
+                    sample.abs() <= 2.0,
+                    "DSP output exceeded limiter bounds: {} at sample offset {}",
+                    sample,
+                    offset
+                );
+            }
+
+            offset = end;
+            step += 1;
+        }
+
+        assert!(step >= 500, "Should have executed at least 500 automation steps");
+    }
+
+    #[test]
+    fn test_rapid_bypass_toggle_under_signal() {
+        let (sender, receiver) = create_param_channel(64);
+        let telemetry = Arc::new(AudioTelemetry::new());
+        let mut dsp = DspProcessor::new(48000, receiver, Arc::clone(&telemetry));
+
+        // Heavy boost on preamp and EQ
+        sender.set_preamp_gain(6.0).unwrap();
+        let mut bands = [EqBandConfig::default(); 10];
+        bands[0].enabled = true;
+        bands[0].gain_db = 12.0;
+        sender.update_all_bands(bands).unwrap();
+
+        let mut audio = vec![0.7f32; 8192];
+        let chunk_size = 16; // Rapid toggle every 16 samples
+        let mut offset = 0;
+        let mut bypass_state = false;
+
+        while offset < audio.len() {
+            let end = (offset + chunk_size).min(audio.len());
+            let chunk = &mut audio[offset..end];
+
+            bypass_state = !bypass_state;
+            let _ = sender.set_bypass(bypass_state);
+
+            dsp.process_interleaved_stereo(chunk);
+
+            for &s in chunk.iter() {
+                assert!(!s.is_nan() && !s.is_infinite());
+                assert!(s.abs() <= 2.5, "Instability during rapid bypass toggle: {}", s);
+            }
+
+            offset = end;
+        }
+    }
 }
+
