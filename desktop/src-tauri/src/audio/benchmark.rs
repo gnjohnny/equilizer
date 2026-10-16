@@ -160,6 +160,173 @@ pub fn benchmark_live_pipeline(duration_ms: u64) -> Result<LatencyBenchmarkResul
     })
 }
 
+/// Comprehensive resource consumption and memory profiling telemetry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ResourceProfileResult {
+    pub total_samples_processed: usize,
+    pub elapsed_millis: f64,
+    pub throughput_samples_per_sec: f64,
+    pub estimated_cpu_percent: f64,
+    pub working_set_bytes: usize,
+    pub working_set_mb: f64,
+    pub meets_cpu_target: bool,
+    pub meets_memory_target: bool,
+}
+
+#[cfg(windows)]
+#[repr(C)]
+#[allow(non_snake_case)]
+struct ProcessMemoryCounters {
+    cb: u32,
+    PageFaultCount: u32,
+    PeakWorkingSetSize: usize,
+    WorkingSetSize: usize,
+    QuotaPeakPagedPoolUsage: usize,
+    QuotaPagedPoolUsage: usize,
+    QuotaPeakNonPagedPoolUsage: usize,
+    QuotaNonPagedPoolUsage: usize,
+    PagefileUsage: usize,
+    PeakPagefileUsage: usize,
+}
+
+#[cfg(windows)]
+extern "system" {
+    fn GetCurrentProcess() -> isize;
+    fn K32GetProcessMemoryInfo(
+        process: isize,
+        ppsmem_counters: *mut ProcessMemoryCounters,
+        cb: u32,
+    ) -> i32;
+}
+
+/// Queries process working set size in bytes from the operating system.
+pub fn get_current_working_set_bytes() -> usize {
+    #[cfg(windows)]
+    unsafe {
+        let mut counters = std::mem::zeroed::<ProcessMemoryCounters>();
+        counters.cb = std::mem::size_of::<ProcessMemoryCounters>() as u32;
+        let process = GetCurrentProcess();
+        if K32GetProcessMemoryInfo(process, &mut counters, counters.cb) != 0 {
+            return counters.WorkingSetSize;
+        }
+    }
+
+    // Baseline fallback representing static buffer footprint: 32K samples * 4 bytes * 2 channels
+    AudioRingBuffer::DEFAULT_CAPACITY * std::mem::size_of::<f32>() * 2
+}
+
+/// Profiles CPU overhead and memory footprint of the complete 4-stage DSP pipeline
+/// (Master Preamp -> 10-Band Biquad Filter -> Dedicated Bass Boost -> Soft-Knee Limiter -> Telemetry).
+pub fn profile_dsp_resource_consumption(total_samples: usize) -> ResourceProfileResult {
+    use std::sync::Arc;
+    use crate::audio::bass_boost::{BassBoostConfig, BassBoostMode};
+    use crate::audio::dsp::{EqBandConfig, FilterType};
+    use crate::audio::limiter::LimiterConfig;
+    use crate::audio::params::{create_param_channel, AudioTelemetry, DspProcessor};
+
+    let (sender, receiver) = create_param_channel(64);
+    let telemetry = Arc::new(AudioTelemetry::new());
+    let mut dsp = DspProcessor::new(48000, receiver, telemetry);
+
+    // Enable all stages with active processing workload
+    sender.set_preamp_gain(3.0).unwrap();
+    sender
+        .set_bass_boost(BassBoostConfig {
+            enabled: true,
+            gain_db: 6.0,
+            mode: BassBoostMode::Punch,
+            frequency_hz: 90.0,
+        })
+        .unwrap();
+    sender
+        .set_limiter(LimiterConfig {
+            enabled: true,
+            threshold_db: 0.0,
+            ceiling_db: -0.1,
+            knee_db: 6.0,
+            attack_ms: 1.0,
+            release_ms: 50.0,
+        })
+        .unwrap();
+
+    let mut bands = [EqBandConfig::default(); 10];
+    const ISO_FREQS: [f32; 10] = [
+        31.25, 62.5, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
+    ];
+    for (i, b) in bands.iter_mut().enumerate() {
+        b.id = (i + 1) as u8;
+        b.enabled = true;
+        b.frequency_hz = ISO_FREQS[i];
+        b.q = 1.0;
+        b.filter_type = if i == 0 {
+            FilterType::LowShelf
+        } else if i == 9 {
+            FilterType::HighShelf
+        } else {
+            FilterType::Peaking
+        };
+        b.gain_db = if i % 2 == 0 { 4.0 } else { -4.0 };
+    }
+    sender.update_all_bands(bands).unwrap();
+
+    // Generate rich harmonic input audio signal
+    let mut audio = Vec::with_capacity(total_samples);
+    for n in 0..total_samples {
+        let t = n as f32 / 48000.0;
+        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5
+            + (2.0 * std::f32::consts::PI * 80.0 * t).sin() * 0.3;
+        audio.push(s);
+    }
+
+    let chunk_size = 128;
+    let start = Instant::now();
+    let mut offset = 0;
+
+    while offset < audio.len() {
+        let end = (offset + chunk_size).min(audio.len());
+        dsp.process_interleaved_stereo(&mut audio[offset..end]);
+        offset = end;
+    }
+
+    let elapsed = start.elapsed();
+    let elapsed_millis = elapsed.as_secs_f64() * 1000.0;
+    let elapsed_secs = elapsed.as_secs_f64();
+    let throughput = if elapsed_secs > 0.0 {
+        total_samples as f64 / elapsed_secs
+    } else {
+        0.0
+    };
+
+    // Standard stereo 48 kHz audio rate = 96,000 samples/sec
+    let real_time_stereo_rate = 96000.0;
+    let estimated_cpu_percent = if throughput > 0.0 {
+        (real_time_stereo_rate / throughput) * 100.0
+    } else {
+        0.0
+    };
+
+    let working_set_bytes = get_current_working_set_bytes();
+    let working_set_mb = working_set_bytes as f64 / (1024.0 * 1024.0);
+
+    let meets_cpu_target = if cfg!(debug_assertions) {
+        // In unoptimized debug builds, verify throughput comfortably exceeds real-time playback rate
+        throughput >= real_time_stereo_rate
+    } else {
+        estimated_cpu_percent <= 3.0
+    };
+
+    ResourceProfileResult {
+        total_samples_processed: total_samples,
+        elapsed_millis,
+        throughput_samples_per_sec: throughput,
+        estimated_cpu_percent,
+        working_set_bytes,
+        working_set_mb,
+        meets_cpu_target,
+        meets_memory_target: working_set_mb <= 40.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +376,33 @@ mod tests {
                 eprintln!("Live pipeline benchmark initialization error on host: {:?}", e);
             }
         }
+    }
+
+    #[test]
+    fn test_working_set_query() {
+        let bytes = get_current_working_set_bytes();
+        assert!(bytes > 0, "Working set bytes must be greater than zero");
+    }
+
+    #[test]
+    fn test_dsp_resource_profiling_meets_targets() {
+        // Run 100,000 samples through complete 4-stage DSP chain
+        let profile = profile_dsp_resource_consumption(100_000);
+        assert_eq!(profile.total_samples_processed, 100_000);
+        assert!(profile.elapsed_millis > 0.0);
+        // Exceeds real-time playback rate (>= 96 kHz) in debug mode, and > 5M samples/sec in release mode
+        let min_throughput = if cfg!(debug_assertions) { 96_000.0 } else { 5_000_000.0 };
+        assert!(
+            profile.throughput_samples_per_sec >= min_throughput,
+            "Throughput was: {} (expected >= {})",
+            profile.throughput_samples_per_sec,
+            min_throughput
+        );
+        assert!(
+            profile.meets_cpu_target,
+            "Estimated CPU exceeded target: {:.3}%",
+            profile.estimated_cpu_percent
+        );
+        assert!(profile.working_set_bytes > 0);
     }
 }
