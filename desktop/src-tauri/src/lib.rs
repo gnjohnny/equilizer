@@ -7,6 +7,7 @@ pub fn run() {
 }
 
 pub mod audio;
+pub mod storage;
 
 pub mod audio_safety {
     /// Safe conversion from decibels to linear amplitude: 10^(dB / 20)
