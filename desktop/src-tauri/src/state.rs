@@ -215,4 +215,82 @@ impl AppState {
 
         Ok(())
     }
+
+    /// Returns all presets (factory and custom user presets) from local storage.
+    pub fn list_presets(&self) -> Result<Vec<crate::storage::EqualizerPreset>, String> {
+        self.storage.list_presets().map_err(|e| e.to_string())
+    }
+
+    /// Saves or updates a custom user preset.
+    /// If the saved preset is currently active, syncs its parameters to the live audio pipeline.
+    pub fn save_preset(
+        &self,
+        preset: crate::storage::EqualizerPreset,
+    ) -> Result<crate::storage::EqualizerPreset, String> {
+        let saved = self.storage.save_preset(preset).map_err(|e| e.to_string())?;
+
+        // If saving the active preset, sync to pipeline immediately
+        if let Ok(settings) = self.storage.load_settings() {
+            if settings.active_preset_id == saved.id {
+                let lock = self
+                    .pipeline
+                    .lock()
+                    .map_err(|e| format!("Failed to acquire pipeline lock: {}", e))?;
+                if let Some(ref p) = *lock {
+                    Self::sync_pipeline_parameters(p, &self.storage, &settings);
+                }
+            }
+        }
+
+        Ok(saved)
+    }
+
+    /// Deletes a custom user preset by its unique ID.
+    /// Factory presets are protected from deletion.
+    /// If the active preset was deleted, automatically falls back to the "flat" reference preset.
+    pub fn delete_preset(&self, id: &str) -> Result<(), String> {
+        self.storage.delete_preset(id).map_err(|e| e.to_string())?;
+
+        // If the deleted preset was active, fall back to "flat" preset
+        if let Ok(mut settings) = self.storage.load_settings() {
+            if settings.active_preset_id == id {
+                settings.active_preset_id = "flat".to_string();
+                let _ = self.storage.save_settings(&settings);
+
+                let lock = self
+                    .pipeline
+                    .lock()
+                    .map_err(|e| format!("Failed to acquire pipeline lock: {}", e))?;
+                if let Some(ref p) = *lock {
+                    Self::sync_pipeline_parameters(p, &self.storage, &settings);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Activates a preset by its ID, persisting it to settings and syncing the live audio pipeline.
+    pub fn set_active_preset(&self, id: &str) -> Result<crate::storage::EqualizerPreset, String> {
+        let preset = self
+            .storage
+            .get_preset(id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Preset '{}' not found", id))?;
+
+        if let Ok(mut settings) = self.storage.load_settings() {
+            settings.active_preset_id = id.to_string();
+            let _ = self.storage.save_settings(&settings);
+
+            let lock = self
+                .pipeline
+                .lock()
+                .map_err(|e| format!("Failed to acquire pipeline lock: {}", e))?;
+            if let Some(ref p) = *lock {
+                Self::sync_pipeline_parameters(p, &self.storage, &settings);
+            }
+        }
+
+        Ok(preset)
+    }
 }

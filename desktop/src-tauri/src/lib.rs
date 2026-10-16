@@ -23,6 +23,10 @@ pub fn run() {
             commands::dsp::update_bass_boost,
             commands::dsp::set_preamp_gain,
             commands::dsp::toggle_bypass,
+            commands::presets::list_presets,
+            commands::presets::save_preset,
+            commands::presets::delete_preset,
+            commands::presets::set_active_preset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running equilizer application");
